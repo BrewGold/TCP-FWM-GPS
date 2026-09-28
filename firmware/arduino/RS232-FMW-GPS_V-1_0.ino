@@ -1320,7 +1320,8 @@ void updateMovementState() {
   bool ggaFresh =
     (now - lastGgaMs) <= GGA_FRESHNESS_MS;
 
-  if ((now - lastPubxMs) > PUBX_FRESHNESS_MS) {
+  if (lastPubxMs > 0 &&
+      (now - lastPubxMs) > PUBX_FRESHNESS_MS) {
     hasActive = false;
     hasCarrSoln = -1;
     strncpy(
