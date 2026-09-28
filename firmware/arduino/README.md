@@ -1,113 +1,223 @@
 # Firmware Arduino
 
-## Versión final (compilada)
+Este directorio contiene la implementación funcional del firmware para el Arduino UNO R4 WiFi utilizado como MCU del sistema GNSS FWD.
 
-- `rs232_fwd_gps_final_v_0_99.ino` — **v0.9.9 MADRID FINAL**
+## Versión actual
 
-Esta es la versión final que se ha compilado y usado en campo. Sustituye a la versión unificada anterior (`rs232_fwd_gps_unificado.ino`) y al borrador `rs232_fwd_gps_draft_v0_9.ino`, que se mantienen solo como referencia histórica.
+- `RS232-FMW-GPS_V-2_1.ino` — **Rev.2.1**
 
-### Hardware
+La versión actual incluye:
 
-- GNSS (UM980): RX=44, TX=43, BAUD=115200 (`Serial1`)
-- Salida Dynatest: RX=18, TX=17, BAUD=38400 (`Serial2` → MAX3232)
-- IMU (BNO085): SDA=8, SCL=9 (`Wire1`), I2C 400 kHz, dirección `0x4B`
-- LED_RED: pin 4 (estado GNSS/HAS)
-- LED_GREEN: pin 5 (estado de movimiento/lock)
+- GNSS UM980 por Serial1 @ 115200 bps
+- Salida FWD por D2 @ 38400 bps (soft-serial TX-only)
+- BNO085 por I2C para corrección de offset antena-pistón
+- Detección HAS mediante `PUBX,00`
+- LEDs D5/D6 con estados GNSS + IMU + HAS + movimiento
+- Ethernet W5500 a 192.168.1.122:15919
+- WiFi AP para diagnóstico / control por TCP
 
-### Máquina de estados
+---
 
-**Movimiento:**
-`MOVING → AVERAGING` (velocidad < 0.20 m/s durante 2 s) `→ LOCKED` (promedio de 15 s) `→ MOVING` (si se desplaza > 1.0 m o velocidad > 0.30 m/s)
+## 1) Hardware
 
-**PPP/HAS:**
-`SIN_PPP → PPP_CONVERGING → PPP_ESTABLE`
+### UART entrada GNSS (UM980)
+- **Puerto**: `Serial1`
+- **Pins**: D0 = RX, D1 = TX
+- **Baud**: `115200`
+- **Formato**: GGA + RMC + PUBX,00
+
+### UART salida FWD (Dynatest)
+- **Puerto**: software TX-only en D2
+- **Baud**: `38400`
+- **Formato**: GGA únicamente
+- **Periodo**: `100 ms` (10 Hz)
+
+### IMU / Magnetómetro
+- **Sensor**: BNO085 / BNO086
+- **Bus**: I2C
+- **Pins**: SDA/SCL (pines del Arduino UNO R4 WiFi)
+- **Frecuencia**: `100 kHz`
+- **Uso**: yaw para corrección de offset antena-pistón
+
+### LEDs
+- **LED1**: D5 — estado GNSS + IMU + HAS
+- **LED2**: D6 — estado movimiento / bloqueado
+
+### Ethernet
+- **Shield**: W5500
+- **Destino**: `192.168.1.122:15919`
+
+### WiFi diagnóstico / control
+- **AP SSID**: `FWD-GPS-Diag`
+- **Contraseña**: `12345678`
+- **TCP**: `192.168.4.1:15920`
+
+---
+
+## 2) Máquina de estados
+
+### Movimiento
+
+- `MOVING → AVERAGING`
+  - se entra cuando velocidad < umbral durante 2 s
+- `AVERAGING → LOCKED`
+  - cuando se completa la ventana de promedio
+- `LOCKED → MOVING`
+  - si la velocidad aumenta o se aleja +1.0 m del punto bloqueado
+
+### HAS
+
+- `SIN_HAS`
+- `HAS_ACTIVO`
+- `HAS_CONVERGIENDO` (estado visual por LED)
 
 ### Corrección antena → pistón
 
-- Offset: 0.55 m
-- Bearing: `yaw + 270°` (antena a la derecha, pistón a la izquierda)
-- Declinación magnética (Madrid): 1.0° (`yaw_geografico = yaw_magnetico - declinacion`)
+- Offset por defecto: `0.55 m`
+- Dirección: `yaw + 270°`
+- Declinación magnética por defecto: `1.0°`
+- Solo se aplica si el magnetómetro está operativo (`BNO085` disponible)
 
 ---
 
-## 1) Mapa de pines
+## 3) Parámetros de navegación
 
-### UART entrada GNSS (UM980)
-- `GNSS_RX = 44` → ESP32 recibe desde TX del UM980
-- `GNSS_TX = 43` → ESP32 transmite hacia RX del UM980
-- `GNSS_BAUD = 115200`
+Los valores por defecto son:
 
-### UART salida a Dynatest (vía MAX3232)
-- `DYNATEST_TX = 17`
-- `DYNATEST_RX = 18`
-- `DYNATEST_BAUD = 38400`
+- `OUTPUT_PERIOD_MS = 100` → 10 Hz
+- `OFFSET_M = 0.55`
+- `DECLINATION_DEG = 1.0`
+- `STOP_CONFIRMATION_MS = 2000`
+- `AVERAGING_WINDOW_MS = 15000` → 15 s
+- `SPEED_ENTER_STOP = 0.20 m/s`
+- `SPEED_EXIT_STOP = 0.30 m/s`
+- `RELOCK_DISTANCE_M = 1.0`
+- `MAX_SAMPLES = 160`
 
-### I2C IMU (BNO085)
-- `I2C_SDA = 8`
-- `I2C_SCL = 9`
-- `I2C_FREQ = 400000`
-- Dirección: `0x4B` (bus `Wire1`)
-
-### LEDs
-- `LED_RED = 4`: estado GNSS/HAS (parpadeo en `PPP_CONVERGING`, fijo en fix/`PPP_ESTABLE`)
-- `LED_GREEN = 5`: estado de movimiento (parpadeo en `AVERAGING`, fijo en `LOCKED`)
+En Rev.2.1 estos parámetros pueden modificarse en tiempo real por TCP mediante comandos del terminal.
 
 ---
 
-## 2) Parámetros de navegación
+## 4) Formato de salida NMEA
 
-- `OFFSET_M = 0.55`: distancia antena→pistón en metros.
-- `DECLINATION_OFFSET = 1.0`: declinación magnética local (Madrid), en grados.
-- `STOP_THRESHOLD_MS = 2000`: tiempo bajo velocidad de entrada para pasar a `AVERAGING`.
-- `AVERAGING_WINDOW_MS = 15000`: ventana de promedio en parada (15 s).
-- `SPEED_ENTER_STOP = 0.20` / `SPEED_EXIT_STOP = 0.30` (m/s): histéresis de detección de parada.
-- `NEW_LOCATION_DIST = 1.0`: distancia (m) para salir de `LOCKED` por desplazamiento.
-- `MAX_SAMPLES = 160`: tamaño de buffer de muestras para promedio (lat/lon/alt/yaw).
-- `OUTPUT_PERIOD_MS = 100`: periodo de salida (10 Hz).
+El firmware genera y transmite siempre una trama tipo:
 
----
+- `$GPGGA,...*CS`
 
-## 3) Formato de salida NMEA
+Con fix quality según el estado:
 
-El firmware genera y envía siempre:
-- **`$GPGGA,...*CS`**
-
-El `fixQ` de salida se calcula según prioridad:
-1. `LOCKED` con posición válida → `fixQ = 4`
-2. `PPP_ESTABLE` (HAS) → `fixQ = 4`
-3. `PPP_CONVERGING` → `fixQ = 2`
-4. En otro caso, con GNSS válido → `fixQ = 1`
+1. `LOCKED` + posición válida → `fixQ = 4`
+2. HAS activo → `fixQ = 2`
+3. GNSS válido y no bloqueado → `fixQ = 1`
 
 ---
 
-## 4) Flujo de funcionamiento
+## 5) Flujo de funcionamiento
 
-1. Lee líneas NMEA/propietarias del UM980 por `Serial1` (`$GPGGA`, `$GPRMC`, `#PPPNAVA`/HAS).
-2. Valida checksum y parsea GGA (posición, altitud, satélites, fix) y RMC (velocidad, rumbo).
-3. Actualiza estado PPP/HAS (`SIN_PPP` / `PPP_CONVERGING` / `PPP_ESTABLE`).
-4. Lee yaw del IMU BNO085 (rotation vector) vía `Wire1`, con reintentos e detección de reset.
-5. Actualiza la máquina de estados de movimiento (`MOVING` / `AVERAGING` / `LOCKED`).
-6. En `AVERAGING`, acumula muestras de lat/lon/alt/yaw; al completar 15 s calcula medias recortadas (trimmed mean) y media circular del yaw, y aplica el offset antena→pistón.
-7. En `LOCKED`, transmite la posición corregida; en otro caso transmite la posición instantánea (con offset si hay yaw disponible).
-8. Construye la trama `$GPGGA` y la envía por `Serial2` hacia el MAX3232, a 10 Hz.
-9. Actualiza LEDs de estado (`LED_RED`/`LED_GNSS`, `LED_GREEN`/movimiento).
-
----
-
-## 5) Checklist rápido de validación
-
-1. Ver logs por USB a `115200`.
-2. Confirmar recepción de tramas `[GNSS] GGA:` y `[GNSS] RMC:`.
-3. Confirmar inicialización del IMU (`[IMU] BNO085 initialized`) o reintentos periódicos si falla.
-4. Verificar transición de estados en logs (`[STATE] MOVING -> AVERAGING -> LOCKED`).
-5. Confirmar salida `$GPGGA` hacia el Dynatest y que este la acepta sin errores.
-6. Validar comportamiento de LEDs: `LED_RED` (GNSS/HAS) y `LED_GREEN` (movimiento/lock).
+1. Lee líneas NMEA del UM980 por `Serial1` (`$GPGGA`, `$GPRMC`, `$PUBX,00`).
+2. Valida checksum y parsea posición, velocidad, altitud y tipo de solución.
+3. Revisa HAS y su estado activo mediante `PUBX,00`.
+4. Lee yaw del BNO085 vía I2C.
+5. Actualiza la máquina de estados (`MOVING`, `AVERAGING`, `LOCKED`).
+6. En `AVERAGING` acumula lat/lon/alt/yaw y calcula promedio recortado.
+7. En `LOCKED`, transmite la posición corregida; si no hay bloqueo, transmite instantánea con offset si hay yaw.
+8. Emite GGA por D2 hacia el Dynatest a 10 Hz.
+9. Envía la misma trama por Ethernet.
+10. Publica diagnóstico por WiFi TCP y permite comandos interactivos.
 
 ---
 
-## 6) Notas
+## 6) Diagnóstico TCP / WiFi
 
-- Requiere la librería `Adafruit_BNO08x`.
-- Si el receptor Dynatest requiere otro baudrate, ajustar `DYNATEST_BAUD`.
-- La declinación magnética (`DECLINATION_OFFSET`) está calibrada para Madrid; ajustar si se despliega en otra ubicación.
-- Los archivos `rs232_fwd_gps_unificado.ino` y `rs232_fwd_gps_draft_v0_9.ino` se conservan como versiones anteriores/experimentales, no representan el firmware final compilado.
+La Rev.2.1 incorpora una interfaz TCP por WiFi para diagnosticar y ajustar parámetros en campo sin depender del USB.
+
+### Comandos disponibles
+
+```
+freq <1-10>        Cambiar frecuencia GNSS (Hz)
+speed_stop <0-1>   Umbral parada (m/s)
+speed_move <0-1>   Umbral movimiento (m/s)
+offset <0-2>       Offset antena-pistón (m)
+decl <-180-180>    Declinación magnética (°)
+avg <5-60>         Ventana promedio (segundos)
+status             Mostrar estado actual
+help               Lista de comandos
+```
+
+### Ejemplo
+
+```
+> help
+=== COMANDOS DISPONIBLES ===
+freq <1-10>        - Frecuencia en Hz
+speed_stop <0-1>   - Umbral parada (m/s)
+speed_move <0-1>   - Umbral movimiento (m/s)
+offset <0-2>       - Offset antena (m)
+decl <-180-180>    - Declinación magnética (°)
+avg <5-60>         - Ventana promedio (s)
+status             - Mostrar estado actual
+help               - Este mensaje
+===========================
+
+> freq 5
+OK: Frecuencia cambiada a 5 Hz (200 ms)
+
+> status
+=== ESTADO ACTUAL ===
+Frecuencia: 5 Hz (200 ms)
+Offset antena: 0.55 m
+Estado GNSS: OK
+HAS activo: SI
+Movimiento: LOCKED
+...
+```
+
+---
+
+## 7) Checklist rápido de validación
+
+1. Conectar Arduino por alimentación externa adecuada.
+2. Confirmar que el WiFi AP `FWD-GPS-Diag` aparece.
+3. Conectar desde Android al TCP `192.168.4.1:15920`.
+4. Verificar que llegan líneas tipo:
+   - `[time] GNSS:OK LAT:... LON:... ALT:...`
+5. Confirmar `PUBX,00` y `HAS activo` en logs.
+6. Confirmar `GGA` en salida FWD por D2 a 10 Hz.
+7. Validar LEDs en estados reales del sistema.
+8. Comprobar `status` y `help` funcionales.
+
+---
+
+## 8) Notas técnicas
+
+- `SoftwareSerial.h` no es compatible con Arduino UNO R4 WiFi; la salida FWD se implementa por bit-banging TX-only en D2.
+- El UM980 debe configurarse con:
+
+```
+UNLOG COM3
+CONFIG COM3 115200
+GNGGA COM3 0.1
+GNRMC COM3 0.1
+CONFIG NMEA PUBX ENABLE
+ENABLE HAS
+SAVECONFIG
+```
+
+- La corrección de antena se aplica solo si el BNO085 está disponible.
+- El diagnostic TCP se usa para pruebas de campo y ajuste sin reprogramar.
+
+---
+
+## 9) Archivos relevantes
+
+- `RS232-FMW-GPS_V-2_1.ino` — firmware actual de referencia
+- `README.md` — documentación general del proyecto
+- `CHANGELOG.md` — historial de versiones y novedades
+
+---
+
+## 10) Versiones
+
+- **Rev.2.1**: WiFi AP + control TCP + diagnóstico interactivo
+- **Rev.2**: HAS, LEDs, 10 Hz, BNO085, Ethernet
+- **Rev.1**: base funcional con promedio de coordenadas y salida FWD
