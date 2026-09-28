@@ -1329,8 +1329,18 @@ int getOutputFixQuality() {
     return 4;
   }
 
-  if (hasActive) {
-    if (hasCarrSoln == 2) {
+  if (strcmp(hasSolutionType, "RTK") == 0) {
+    return 4;
+  }
+
+  if (strcmp(hasSolutionType, "DGPS") == 0) {
+    return 2;
+  }
+
+  if (strcmp(hasSolutionType, "HAS") == 0 ||
+      hasActive) {
+    if (hasCarrSoln == 2 ||
+        strcmp(hasSolutionType, "RTK") == 0) {
       return 4;
     }
 
