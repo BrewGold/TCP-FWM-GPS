@@ -101,6 +101,8 @@ uint32_t lastEthernetCheckMs = 0;
 #define SPEED_ENTER_STOP_MS        0.20
 #define SPEED_EXIT_STOP_MS         0.30
 
+#define CARR_SOLN_HAS              5
+
 // ============================================================================
 // COM2 - UART POR SOFTWARE (SOLO TX) - Compensado para RA4M1
 // ============================================================================
@@ -195,6 +197,7 @@ double currentSpeedMS = 0.0;
 double currentCourse = 0.0;
 
 int satelliteCount = 0;
+int gnssFixQuality = 0;
 
 char utcTime[16] = "000000.00";
 char hdopText[16] = "1.0";
@@ -613,8 +616,11 @@ bool parseGGA(const char* line) {
 
   if (fixQuality < 1) {
     gnssValid = false;
+    gnssFixQuality = 0;
     return false;
   }
+
+  gnssFixQuality = fixQuality;
 
   double latitude = 0.0;
   double longitude = 0.0;
@@ -850,7 +856,7 @@ void parsePUBX00(const char* line) {
         carrSolnValue = (int)parsedValue;
         hasCarrSolnDetected = true;
 
-        if (carrSolnValue >= 5) {
+        if (carrSolnValue == CARR_SOLN_HAS) {
           hasDetected = true;
         }
       }
@@ -910,7 +916,7 @@ void parsePUBX00(const char* line) {
           carrSolnValue = (int)parsedValue;
           hasCarrSolnDetected = true;
 
-          if (carrSolnValue >= 5) {
+          if (carrSolnValue == CARR_SOLN_HAS) {
             hasDetected = true;
           }
         }
@@ -1326,39 +1332,15 @@ void clearAverageBuffers() {
 }
 
 int getOutputFixQuality() {
-  uint32_t now = millis();
-
   if (!gnssValid) {
     return 0;
   }
 
-  if (movementState == LOCKED &&
-      lockedValid) {
-    return 4;
-  }
-
-  bool pubxFresh =
-    (lastPubxMs > 0) &&
-    ((now - lastPubxMs) <= PUBX_FRESHNESS_MS);
-
-  if (!pubxFresh) {
+  if (gnssFixQuality < 1) {
     return 1;
   }
 
-  if (strcmp(hasSolutionType, "RTK") == 0) {
-    return 4;
-  }
-
-  if (strcmp(hasSolutionType, "DGPS") == 0) {
-    return 2;
-  }
-
-  if (strcmp(hasSolutionType, "HAS") == 0 ||
-      hasActive) {
-    return 1;
-  }
-
-  return 1;
+  return gnssFixQuality;
 }
 
 void updateMovementState() {
