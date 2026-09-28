@@ -1070,7 +1070,13 @@ double readYaw() {
   if (bno08x.getSensorEvent(&sensorValue)) {
     if (sensorValue.sensorId ==
         SH2_GEOMAGNETIC_ROTATION_VECTOR) {
-      if (sensorValue.status == 0) {
+      uint8_t yawStatus =
+        (uint8_t)(sensorValue.status & 0x03);
+
+      bool yawReliable =
+        (yawStatus >= 2); // 2=medium, 3=high
+
+      if (!yawReliable) {
         magnetometerActive = false;
         currentYaw = NAN;
 
