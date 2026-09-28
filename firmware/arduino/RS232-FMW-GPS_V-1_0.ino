@@ -836,12 +836,23 @@ void parsePUBX00(const char* line) {
     }
 
     if (expectCarrSolnValue) {
-      carrSolnValue = atoi(fields[i]);
-      hasCarrSolnDetected = true;
       expectCarrSolnValue = false;
+      char* endPointer = nullptr;
+      long parsedValue = strtol(
+        fields[i],
+        &endPointer,
+        10
+      );
 
-      if (carrSolnValue >= 5) {
-        hasDetected = true;
+      if (endPointer != fields[i] &&
+          endPointer != nullptr &&
+          *endPointer == '\0') {
+        carrSolnValue = (int)parsedValue;
+        hasCarrSolnDetected = true;
+
+        if (carrSolnValue >= 5) {
+          hasDetected = true;
+        }
       }
 
       continue;
@@ -883,11 +894,22 @@ void parsePUBX00(const char* line) {
         hasDetected = true;
       }
       else {
-        carrSolnValue = atoi(carrValue);
-        hasCarrSolnDetected = true;
+        char* endPointer = nullptr;
+        long parsedValue = strtol(
+          carrValue,
+          &endPointer,
+          10
+        );
 
-        if (carrSolnValue >= 5) {
-          hasDetected = true;
+        if (endPointer != carrValue &&
+            endPointer != nullptr &&
+            *endPointer == '\0') {
+          carrSolnValue = (int)parsedValue;
+          hasCarrSolnDetected = true;
+
+          if (carrSolnValue >= 5) {
+            hasDetected = true;
+          }
         }
       }
     }
@@ -1324,6 +1346,7 @@ void updateMovementState() {
       (now - lastPubxMs) > PUBX_FRESHNESS_MS) {
     hasActive = false;
     hasCarrSoln = -1;
+    lastPubxMs = 0;
     strncpy(
       hasSolutionType,
       "UNKNOWN",
