@@ -1341,11 +1341,6 @@ int getOutputFixQuality() {
     return 4;
   }
 
-  if (hasActive &&
-      hasCarrSoln == CARR_SOLN_HAS) {
-    return 4;
-  }
-
   if (gnssFixQuality < 1) {
     return 1;
   }
@@ -1362,8 +1357,10 @@ void updateMovementState() {
   bool ggaFresh =
     (now - lastGgaMs) <= GGA_FRESHNESS_MS;
 
-  if (lastPubxMs > 0 &&
-      (now - lastPubxMs) > PUBX_FRESHNESS_MS) {
+  if ((now - lastPubxMs) > PUBX_FRESHNESS_MS &&
+      (hasActive ||
+       hasCarrSoln >= 0 ||
+       strcmp(hasSolutionType, "UNKNOWN") != 0)) {
     hasActive = false;
     hasCarrSoln = -1;
     lastPubxMs = 0;
