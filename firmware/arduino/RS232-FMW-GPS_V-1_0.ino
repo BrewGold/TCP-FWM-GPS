@@ -872,14 +872,17 @@ void parsePUBX00(const char* line) {
       solutionType = "RTK";
     }
 
-    if (strcmp(fields[i], "HAS") == 0 ||
-        strstr(fields[i], "HAS") != nullptr) {
+    if (strcmp(fields[i], "HAS") == 0) {
       hasDetected = true;
       solutionType = "HAS";
     }
 
     if (strncmp(fields[i], "solType=", 8) == 0) {
       solutionType = fields[i] + 8;
+
+      if (strcmp(solutionType, "HAS") == 0) {
+        hasDetected = true;
+      }
     }
 
     if (strcmp(fields[i], "carrSoln") == 0) {
@@ -890,7 +893,7 @@ void parsePUBX00(const char* line) {
     if (strncmp(fields[i], "carrSoln=", 9) == 0) {
       const char* carrValue = fields[i] + 9;
 
-      if (strstr(carrValue, "HAS") != nullptr) {
+      if (strcmp(carrValue, "HAS") == 0) {
         hasDetected = true;
       }
       else {
@@ -1327,7 +1330,11 @@ int getOutputFixQuality() {
   }
 
   if (hasActive) {
-    return 4;
+    if (hasCarrSoln == 2) {
+      return 4;
+    }
+
+    return 2;
   }
 
   return 1;
