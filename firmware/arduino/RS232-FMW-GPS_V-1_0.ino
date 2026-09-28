@@ -1345,7 +1345,18 @@ int getOutputFixQuality() {
     return 1;
   }
 
-  return gnssFixQuality;
+  switch (gnssFixQuality) {
+    case 1: // GPS autónomo
+      return 1;
+    case 2: // DGPS/SBAS
+      return 2;
+    case 4: // RTK fixed
+      return 4;
+    case 5: // RTK float
+      return 5;
+    default:
+      return 1;
+  }
 }
 
 void updateMovementState() {
