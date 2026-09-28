@@ -310,6 +310,7 @@ int tcpLineIndex = 0;
 uint32_t lastTcpDiagMs = 0;
 bool wifiApReady = false;
 uint32_t lastWiFiRetryMs = 0;
+bool diagTcpServerStarted = false;
 
 // ============================================================================
 // DIAGNÓSTICO
@@ -890,8 +891,10 @@ bool parsePUBX00(const char* line) {
     }
   }
 
-  // Campo 27 (índice 26) contiene el tipo de solución en PUBX,00
-  // Valores típicos: G3=GPS+Galileo, R3=RTK, HP=HAS+PPP, etc.
+  // Campo 27 (índice 26) usado por el UM980 en la trama:
+  // $PUBX,00,hhmmss.ss,lat,N,lon,E,alt,navStat,...*CS
+  // donde navStat reporta modo de solución (ej. G3, R3, HP/HAS).
+  // Este índice sigue el formato de salida actual del receptor UM980.
   if (fieldCount < 27) {
     return false;
   }
@@ -1294,7 +1297,8 @@ void clearAverageBuffers() {
 }
 
 int getOutputFixQuality() {
-  if (!gnssValid) {
+  if (!gnssValid &&
+      !(movementState == LOCKED && lockedValid)) {
     return 0;
   }
 
@@ -1318,14 +1322,19 @@ void updateMovementState() {
     currentSpeedMS = 0.0;
   }
 
+  bool speedForStop = speedFresh ||
+                      currentSpeedMS <= 0.0001;
+
   if (!ggaFresh) {
     gnssValid = false;
-    lockedValid = false;
+    if (movementState != LOCKED) {
+      lockedValid = false;
+    }
   }
 
   switch (movementState) {
     case MOVING: {
-      if (speedFresh &&
+      if (speedForStop &&
           currentSpeedMS < SPEED_ENTER_STOP_MS_VAR) {
         if (lastStopCheckMs == 0) {
           lastStopCheckMs = now;
@@ -1810,7 +1819,10 @@ bool initializeWiFiAp() {
   }
 
   wifiApReady = true;
-  diagTcpServer.begin();
+  if (!diagTcpServerStarted) {
+    diagTcpServer.begin();
+    diagTcpServerStarted = true;
+  }
 
   Serial.print("[WIFI] AP activo: ");
   Serial.print(wifiSsid);
@@ -1842,7 +1854,10 @@ void maintainWiFiAp() {
 
   if (WiFi.status() == WL_AP_LISTENING) {
     wifiApReady = true;
-    diagTcpServer.begin();
+    if (!diagTcpServerStarted) {
+      diagTcpServer.begin();
+      diagTcpServerStarted = true;
+    }
 
     Serial.print("[WIFI] AP activo: ");
     Serial.print(wifiSsid);
@@ -1869,7 +1884,10 @@ void maintainWiFiAp() {
   if (status == WL_AP_LISTENING ||
       WiFi.status() == WL_AP_LISTENING) {
     wifiApReady = true;
-    diagTcpServer.begin();
+    if (!diagTcpServerStarted) {
+      diagTcpServer.begin();
+      diagTcpServerStarted = true;
+    }
 
     Serial.print("[WIFI] AP activo: ");
     Serial.print(wifiSsid);
@@ -2197,8 +2215,15 @@ void transmitGCGGA() {
   int fixQuality =
     getOutputFixQuality();
 
-  if (!gnssValid ||
-      fixQuality < 1) {
+  bool lockedOutput =
+    (movementState == LOCKED &&
+     lockedValid);
+
+  if (!gnssValid && !lockedOutput) {
+    return;
+  }
+
+  if (fixQuality < 1) {
     return;
   }
 
