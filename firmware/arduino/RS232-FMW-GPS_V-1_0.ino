@@ -1,5 +1,5 @@
 /*
-  RS232-FMW-GPS - Rev.1
+  RS232-FMW-GPS - Rev.2
   Arduino UNO R4 WiFi
 
   LEDS:
@@ -9,7 +9,7 @@
   Prueba de arranque:
     D5 y D6 parpadean durante 5 segundos
 
-  NOTA IMPORTANTE (Rev.1 - fix):
+  NOTA IMPORTANTE (Rev.2):
     SoftwareSerial.h NO es compatible con el core Renesas RA4M1
     del Arduino UNO R4 WiFi (arduino:renesas_uno). El core 1.6.0
     tampoco permite instanciar UART de hardware en pines custom
@@ -17,6 +17,14 @@
     como bit-banging TX-only, compensado con temporización absoluta
     basada en micros() para evitar el drift acumulado que causaba
     la corrupción de datos observada en el terminal.
+  Configuración recomendada UM980 (u-center):
+    UNLOG COM3
+    CONFIG COM3 115200
+    GNGGA COM3 0.1
+    GNRMC COM3 0.1
+    CONFIG NMEA PUBX ENABLE
+    ENABLE HAS
+    SAVECONFIG
 */
 
 #include <Arduino.h>
@@ -36,6 +44,11 @@
 
 #define COM2_BAUD                 38400
 #define COM2_TX_PIN               2
+
+// Rev.2 análisis de ocupación:
+// - Trama GGA ~60 bytes @38400 ≈ 15.6 ms cada 100 ms (~15.6% CPU en TX bit-bang)
+// - UART1 @115200 mantiene margen con buffer HW mientras COM2 transmite
+// - Se mantiene Ethernet sin bloqueos de estado (maintain/transmit desacoplados)
 
 #define SD_CS_PIN                 4
 #define ETHERNET_CS_PIN           10
@@ -77,11 +90,13 @@ uint32_t lastEthernetCheckMs = 0;
 #define GGA_FRESHNESS_MS           2000
 #define IMU_RETRY_MS               5000
 #define IMU_TIMEOUT_MS             5000
+#define MAG_WARNING_PERIOD_MS      5000
 
 #define OUTPUT_PERIOD_MS           100
 #define AVERAGING_WINDOW_MS        15000
 #define RELOCK_DISTANCE_M          1.0
 #define MAX_SAMPLES                160
+#define PUBX_FRESHNESS_MS          2000
 
 #define SPEED_ENTER_STOP_MS        0.20
 #define SPEED_EXIT_STOP_MS         0.30
@@ -165,14 +180,7 @@ enum MovementState {
   LOCKED = 2
 };
 
-enum PPPState {
-  PPP_UNKNOWN = 0,
-  PPP_CONVERGING = 1,
-  PPP_STABLE = 2
-};
-
 MovementState movementState = MOVING;
-PPPState pppState = PPP_UNKNOWN;
 
 // ============================================================================
 // VARIABLES GNSS
@@ -199,11 +207,17 @@ uint32_t lastRmcMs = 0;
 // ============================================================================
 
 bool bnoAvailable = false;
+bool magnetometerActive = false;
 double currentYaw = NAN;
+bool hasActive = false;
+char hasSolutionType[16] = "UNKNOWN";
+int hasCarrSoln = -1;
 
 uint32_t lastBnoDataMs = 0;
 uint32_t lastBnoRetryMs = 0;
 uint32_t lastBnoMessageMs = 0;
+uint32_t lastMagWarningMs = 0;
+uint32_t lastPubxMs = 0;
 
 // ============================================================================
 // VARIABLES DE MOVIMIENTO
@@ -758,31 +772,149 @@ bool parseRMC(const char* line) {
 }
 
 // ============================================================================
-// PPP
+// PARSER PUBX,00 (HAS)
 // ============================================================================
 
-void parsePPPNav(const char* line) {
+void parsePUBX00(const char* line) {
   if (line == nullptr) {
     return;
   }
 
-  if (strncmp(line, "#PPPNAVA", 8) != 0) {
+  if (strncmp(line, "$PUBX,00", 8) != 0) {
     return;
   }
 
-  if (strstr(line, "PPP_ESTABLE") != nullptr ||
-      strstr(line, "PPP_STABLE") != nullptr) {
-    pppState = PPP_STABLE;
-    Serial.println("[PPP] ESTABLE");
+  if (!validateNmeaChecksum(line)) {
+    Serial.println("[GNSS] Error de checksum PUBX,00");
+    return;
   }
-  else if (strstr(line, "PPP_CONVERGING") != nullptr ||
-           strstr(line, "CONVERGING") != nullptr) {
-    pppState = PPP_CONVERGING;
-    Serial.println("[PPP] CONVERGIENDO");
+
+  char copy[240];
+
+  strncpy(
+    copy,
+    line,
+    sizeof(copy) - 1
+  );
+
+  copy[sizeof(copy) - 1] = '\0';
+
+  char* checksum = strchr(copy, '*');
+  if (checksum != nullptr) {
+    *checksum = '\0';
+  }
+
+  char* fields[32];
+  int fieldCount = 0;
+
+  fields[fieldCount++] = copy;
+
+  for (
+    char* pointer = copy;
+    *pointer != '\0';
+    pointer++
+  ) {
+    if (*pointer == ',') {
+      *pointer = '\0';
+
+      if (fieldCount < 32) {
+        fields[fieldCount++] = pointer + 1;
+      }
+    }
+  }
+
+  bool hasDetected = false;
+  bool hasCarrSolnDetected = false;
+  int carrSolnValue = -1;
+  const char* solutionType = "UNKNOWN";
+  bool expectCarrSolnValue = false;
+
+  for (int i = 2; i < fieldCount; i++) {
+    if (fields[i] == nullptr ||
+        fields[i][0] == '\0') {
+      continue;
+    }
+
+    if (expectCarrSolnValue) {
+      carrSolnValue = atoi(fields[i]);
+      hasCarrSolnDetected = true;
+      expectCarrSolnValue = false;
+
+      if (carrSolnValue >= 5) {
+        hasDetected = true;
+      }
+
+      continue;
+    }
+
+    if (strcmp(fields[i], "G2") == 0 ||
+        strcmp(fields[i], "G3") == 0) {
+      solutionType = "GPS";
+    }
+    else if (strcmp(fields[i], "D2") == 0 ||
+             strcmp(fields[i], "D3") == 0) {
+      solutionType = "DGPS";
+    }
+    else if (strcmp(fields[i], "RK") == 0 ||
+             strcmp(fields[i], "TT") == 0 ||
+             strcmp(fields[i], "RTK") == 0) {
+      solutionType = "RTK";
+    }
+
+    if (strcmp(fields[i], "HAS") == 0 ||
+        strstr(fields[i], "HAS") != nullptr) {
+      hasDetected = true;
+      solutionType = "HAS";
+    }
+
+    if (strncmp(fields[i], "solType=", 8) == 0) {
+      solutionType = fields[i] + 8;
+    }
+
+    if (strcmp(fields[i], "carrSoln") == 0) {
+      expectCarrSolnValue = true;
+      continue;
+    }
+
+    if (strncmp(fields[i], "carrSoln=", 9) == 0) {
+      const char* carrValue = fields[i] + 9;
+
+      if (strstr(carrValue, "HAS") != nullptr) {
+        hasDetected = true;
+      }
+      else {
+        carrSolnValue = atoi(carrValue);
+        hasCarrSolnDetected = true;
+
+        if (carrSolnValue >= 5) {
+          hasDetected = true;
+        }
+      }
+    }
+  }
+
+  if (hasCarrSolnDetected) {
+    hasCarrSoln = carrSolnValue;
   }
   else {
-    pppState = PPP_UNKNOWN;
+    hasCarrSoln = -1;
   }
+
+  hasActive = hasDetected;
+  strncpy(
+    hasSolutionType,
+    solutionType,
+    sizeof(hasSolutionType) - 1
+  );
+  hasSolutionType[sizeof(hasSolutionType) - 1] = '\0';
+  lastPubxMs = millis();
+
+  debugPrintf(
+    "[GNSS] PUBX,00 sol=%s carrSoln=%d HAS=%s\n",
+    hasSolutionType,
+    hasCarrSoln,
+    hasActive ? "SI" : "NO"
+  );
 }
 
 // ============================================================================
@@ -805,8 +937,8 @@ void processGnssLine(const char* line) {
            strncmp(line, "$GCRMC", 6) == 0) {
     parseRMC(line);
   }
-  else if (strncmp(line, "#PPPNAVA", 8) == 0) {
-    parsePPPNav(line);
+  else if (strncmp(line, "$PUBX,00", 8) == 0) {
+    parsePUBX00(line);
   }
 }
 
@@ -861,15 +993,17 @@ bool initializeBNO085() {
       )) {
     Serial.println("[IMU] No se pudo inicializar BNO085");
     bnoAvailable = false;
+    magnetometerActive = false;
     return false;
   }
 
   if (!bno08x.enableReport(
-        SH2_ROTATION_VECTOR,
+        SH2_GEOMAGNETIC_ROTATION_VECTOR,
         10000
       )) {
-    Serial.println("[IMU] No se pudo activar rotation vector");
+    Serial.println("[IMU] No se pudo activar geomagnetic rotation vector");
     bnoAvailable = false;
+    magnetometerActive = false;
     return false;
   }
 
@@ -900,6 +1034,7 @@ double readYaw() {
     Serial.println("[IMU] Reset del BNO085 detectado");
 
     bnoAvailable = false;
+    magnetometerActive = false;
     currentYaw = NAN;
 
     initializeBNO085();
@@ -909,7 +1044,21 @@ double readYaw() {
 
   if (bno08x.getSensorEvent(&sensorValue)) {
     if (sensorValue.sensorId ==
-        SH2_ROTATION_VECTOR) {
+        SH2_GEOMAGNETIC_ROTATION_VECTOR) {
+      if (sensorValue.status == 0) {
+        magnetometerActive = false;
+        currentYaw = NAN;
+
+        if (now - lastMagWarningMs >= MAG_WARNING_PERIOD_MS) {
+          lastMagWarningMs = now;
+          Serial.println("[IMU] Magnetómetro no activo; sin corrección de antena");
+        }
+
+        return currentYaw;
+      }
+
+      magnetometerActive = true;
+
       float i =
         sensorValue.un.rotationVector.i;
 
@@ -949,6 +1098,7 @@ double readYaw() {
     }
 
     currentYaw = NAN;
+    magnetometerActive = false;
   }
 
   return currentYaw;
@@ -969,6 +1119,10 @@ void applyAntennaOffset(
   *correctedLon = rawLon;
 
   if (isnan(yaw)) {
+    return;
+  }
+
+  if (!bnoAvailable || !magnetometerActive) {
     return;
   }
 
@@ -1059,14 +1213,28 @@ void startupLedTest() {
 void updateLeds() {
   uint32_t now = millis();
 
-  // LED1: GNSS / PPP
+  // LED1: GNSS + IMU + HAS
   if (!gnssValid) {
     digitalWrite(LED1_PIN, LOW);
   }
-  else if (pppState == PPP_CONVERGING) {
+  else if (!bnoAvailable ||
+           !magnetometerActive) {
     digitalWrite(
       LED1_PIN,
-      ((now % 400) < 200) ? HIGH : LOW
+      ((now % 200) < 100) ? HIGH : LOW
+    );
+  }
+  else if (!hasActive) {
+    digitalWrite(
+      LED1_PIN,
+      ((now % 600) < 300) ? HIGH : LOW
+    );
+  }
+  else if (!(movementState == LOCKED &&
+             lockedValid)) {
+    digitalWrite(
+      LED1_PIN,
+      ((now % 1000) < 500) ? HIGH : LOW
     );
   }
   else {
@@ -1080,7 +1248,7 @@ void updateLeds() {
   else if (movementState == AVERAGING) {
     digitalWrite(
       LED2_PIN,
-      ((now % 1000) < 500) ? HIGH : LOW
+      ((now % 400) < 200) ? HIGH : LOW
     );
   }
   else if (movementState == LOCKED &&
@@ -1136,12 +1304,8 @@ int getOutputFixQuality() {
     return 4;
   }
 
-  if (pppState == PPP_STABLE) {
+  if (hasActive) {
     return 4;
-  }
-
-  if (pppState == PPP_CONVERGING) {
-    return 2;
   }
 
   return 1;
@@ -1155,6 +1319,17 @@ void updateMovementState() {
 
   bool ggaFresh =
     (now - lastGgaMs) <= GGA_FRESHNESS_MS;
+
+  if ((now - lastPubxMs) > PUBX_FRESHNESS_MS) {
+    hasActive = false;
+    hasCarrSoln = -1;
+    strncpy(
+      hasSolutionType,
+      "UNKNOWN",
+      sizeof(hasSolutionType) - 1
+    );
+    hasSolutionType[sizeof(hasSolutionType) - 1] = '\0';
+  }
 
   if (!speedFresh) {
     currentSpeedMS = 0.0;
@@ -1207,6 +1382,8 @@ void updateMovementState() {
         lastSampledGgaMs = lastGgaMs;
 
         if (!isnan(currentYaw) &&
+            bnoAvailable &&
+            magnetometerActive &&
             yawSampleCount < MAX_SAMPLES) {
           yawSamples[yawSampleCount++] =
             currentYaw;
@@ -1707,7 +1884,7 @@ void setup() {
     "=========================================="
   );
   Serial.println(
-    "RS232-FMW-GPS Rev.1"
+    "RS232-FMW-GPS Rev.2"
   );
   Serial.println(
     "Arduino UNO R4 WiFi"
@@ -1728,7 +1905,7 @@ void setup() {
     "Destino:  192.168.1.122:15919"
   );
   Serial.println(
-    "BNO085:   TWI/I2C @ 100 kHz"
+    "BNO085:   TWI/I2C @ 100 kHz (geomagnetic yaw)"
   );
   Serial.println(
     "LED1:     D5 / OUT5"
