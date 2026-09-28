@@ -896,31 +896,39 @@ bool parsePUBX00(const char* line) {
     }
   }
 
-  // Campo 27 (índice 26) usado por el UM980 en la trama:
-  // $PUBX,00,hhmmss.ss,lat,N,lon,E,alt,navStat,...*CS
-  // donde navStat reporta modo de solución (ej. G3, R3, HP/HAS).
-  // Este índice sigue el formato de salida actual del receptor UM980.
-  if (fieldCount < 27) {
-    return false;
+  bool hasTag = false;
+  bool rtkTag = false;
+  bool gpsTag = false;
+
+  for (int i = 0; i < fieldCount; i++) {
+    if (strstr(fields[i], "HP") != nullptr ||
+        strstr(fields[i], "HAS") != nullptr) {
+      hasTag = true;
+    }
+
+    if (strstr(fields[i], "R3") != nullptr ||
+        strstr(fields[i], "RTK") != nullptr) {
+      rtkTag = true;
+    }
+
+    if (strstr(fields[i], "G3") != nullptr ||
+        strstr(fields[i], "G2") != nullptr) {
+      gpsTag = true;
+    }
   }
 
-  const char* navStat = fields[26];
-
-  // Detectar HAS
-  if (strstr(navStat, "HP") != nullptr ||
-      strstr(navStat, "HAS") != nullptr) {
+  // Detectar tipo de solución
+  if (hasTag) {
     hasActive = true;
     solutionType = SOL_HAS;
     debugPrintf("[GNSS] HAS ACTIVO - Precisión mejorada\n");
   }
-  else if (strstr(navStat, "R3") != nullptr ||
-           strstr(navStat, "RTK") != nullptr) {
+  else if (rtkTag) {
     hasActive = false;
     solutionType = SOL_RTK;
     debugPrintf("[GNSS] RTK detectado\n");
   }
-  else if (strstr(navStat, "G3") != nullptr ||
-           strstr(navStat, "G2") != nullptr) {
+  else if (gpsTag) {
     hasActive = false;
     solutionType = SOL_GPS;
     debugPrintf("[GNSS] GPS+Galileo estándar\n");
@@ -1307,7 +1315,15 @@ int getOutputFixQuality() {
     return 0;
   }
 
-  if (hasActive) {
+  if (solutionType == SOL_RTK) {
+    return 4;
+  }
+
+  if (solutionType == SOL_HAS) {
+    return 5;
+  }
+
+  if (solutionType == SOL_DGPS) {
     return 2;
   }
 
@@ -1852,6 +1868,9 @@ void maintainWiFiAp() {
     if (WiFi.status() != WL_AP_LISTENING) {
       wifiApReady = false;
       if (diagTcpClient) {
+        while (diagTcpClient.available() > 0) {
+          (void)diagTcpClient.read();
+        }
         diagTcpClient.stop();
       }
       Serial.println("[WIFI] AP detenido, reintentando");
@@ -2191,6 +2210,10 @@ void sendTcpDiagnostic() {
   uint32_t now = millis();
 
   if (now - lastTcpDiagMs < OUTPUT_PERIOD_MS_VAR) {
+    return;
+  }
+
+  if (diagTcpClient.availableForWrite() < 120) {
     return;
   }
 
