@@ -896,39 +896,36 @@ bool parsePUBX00(const char* line) {
     }
   }
 
-  bool hasTag = false;
-  bool rtkTag = false;
-  bool gpsTag = false;
+  const char* navStat = nullptr;
 
-  for (int i = 0; i < fieldCount; i++) {
-    if (strstr(fields[i], "HP") != nullptr ||
-        strstr(fields[i], "HAS") != nullptr) {
-      hasTag = true;
-    }
+  if (fieldCount > 8 &&
+      fields[8][0] != '\0') {
+    navStat = fields[8];
+  }
+  else if (fieldCount > 26 &&
+           fields[26][0] != '\0') {
+    navStat = fields[26];
+  }
 
-    if (strstr(fields[i], "R3") != nullptr ||
-        strstr(fields[i], "RTK") != nullptr) {
-      rtkTag = true;
-    }
-
-    if (strstr(fields[i], "G3") != nullptr ||
-        strstr(fields[i], "G2") != nullptr) {
-      gpsTag = true;
-    }
+  if (navStat == nullptr) {
+    return false;
   }
 
   // Detectar tipo de solución
-  if (hasTag) {
+  if (strstr(navStat, "HP") != nullptr ||
+      strstr(navStat, "HAS") != nullptr) {
     hasActive = true;
     solutionType = SOL_HAS;
     debugPrintf("[GNSS] HAS ACTIVO - Precisión mejorada\n");
   }
-  else if (rtkTag) {
+  else if (strstr(navStat, "R3") != nullptr ||
+           strstr(navStat, "RTK") != nullptr) {
     hasActive = false;
     solutionType = SOL_RTK;
     debugPrintf("[GNSS] RTK detectado\n");
   }
-  else if (gpsTag) {
+  else if (strstr(navStat, "G3") != nullptr ||
+           strstr(navStat, "G2") != nullptr) {
     hasActive = false;
     solutionType = SOL_GPS;
     debugPrintf("[GNSS] GPS+Galileo estándar\n");
@@ -1320,10 +1317,6 @@ int getOutputFixQuality() {
   }
 
   if (solutionType == SOL_HAS) {
-    return 5;
-  }
-
-  if (solutionType == SOL_DGPS) {
     return 2;
   }
 
@@ -1388,6 +1381,16 @@ void updateMovementState() {
     }
 
     case AVERAGING: {
+      if (!ggaFresh &&
+          sampleCount == 0) {
+        movementState = MOVING;
+        lockedValid = false;
+        lastStopCheckMs = 0;
+        clearAverageBuffers();
+        Serial.println("[STATE] AVERAGING -> MOVING por GNSS stale");
+        break;
+      }
+
       if (gnssValid &&
           lastGgaMs != lastSampledGgaMs &&
           sampleCount < MAX_SAMPLES) {
