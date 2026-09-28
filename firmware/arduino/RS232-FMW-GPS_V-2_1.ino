@@ -1523,27 +1523,28 @@ void formatLatitude(
   *hemisphere =
     latitude >= 0.0 ? 'N' : 'S';
 
-  char minutesText[24];
-
-  dtostrf(
-    minutes,
-    0,
-    4,
-    minutesText
+  int minuteInt = (int)minutes;
+  int minuteFrac = (int)round(
+    (minutes - minuteInt) * 10000.0
   );
 
-  char* firstCharacter = minutesText;
+  if (minuteFrac >= 10000) {
+    minuteFrac -= 10000;
+    minuteInt++;
+  }
 
-  while (*firstCharacter == ' ') {
-    firstCharacter++;
+  if (minuteInt >= 60) {
+    minuteInt -= 60;
+    degrees++;
   }
 
   snprintf(
     output,
     outputSize,
-    "%02d%s",
+    "%02d%02d.%04d",
     degrees,
-    firstCharacter
+    minuteInt,
+    minuteFrac
   );
 }
 
@@ -1562,27 +1563,28 @@ void formatLongitude(
   *hemisphere =
     longitude >= 0.0 ? 'E' : 'W';
 
-  char minutesText[24];
-
-  dtostrf(
-    minutes,
-    0,
-    4,
-    minutesText
+  int minuteInt = (int)minutes;
+  int minuteFrac = (int)round(
+    (minutes - minuteInt) * 10000.0
   );
 
-  char* firstCharacter = minutesText;
+  if (minuteFrac >= 10000) {
+    minuteFrac -= 10000;
+    minuteInt++;
+  }
 
-  while (*firstCharacter == ' ') {
-    firstCharacter++;
+  if (minuteInt >= 60) {
+    minuteInt -= 60;
+    degrees++;
   }
 
   snprintf(
     output,
     outputSize,
-    "%03d%s",
+    "%03d%02d.%04d",
     degrees,
-    firstCharacter
+    minuteInt,
+    minuteFrac
   );
 }
 
@@ -1829,9 +1831,25 @@ void maintainWiFiAp() {
   if (wifiApReady) {
     if (WiFi.status() != WL_AP_LISTENING) {
       wifiApReady = false;
+      if (diagTcpClient) {
+        diagTcpClient.stop();
+      }
       Serial.println("[WIFI] AP detenido, reintentando");
     }
 
+    return;
+  }
+
+  if (WiFi.status() == WL_AP_LISTENING) {
+    wifiApReady = true;
+    diagTcpServer.begin();
+
+    Serial.print("[WIFI] AP activo: ");
+    Serial.print(wifiSsid);
+    Serial.print(" @ ");
+    Serial.print(WiFi.localIP());
+    Serial.print(":");
+    Serial.println(wifiTcpPort);
     return;
   }
 
@@ -1944,21 +1962,25 @@ void processTcpCommand(char* line) {
     return;
   }
 
-  char* argument = line;
+  char* commandEnd = line;
+  char* argument = nullptr;
 
-  while (*argument != '\0' &&
-         *argument != ' ' &&
-         *argument != '\t') {
-    argument++;
+  while (*commandEnd != '\0' &&
+         *commandEnd != ' ' &&
+         *commandEnd != '\t') {
+    commandEnd++;
   }
 
-  if (*argument != '\0') {
-    *argument = '\0';
-    argument++;
+  if (*commandEnd != '\0') {
+    *commandEnd = '\0';
+    argument = commandEnd + 1;
 
     while (*argument == ' ' || *argument == '\t') {
       argument++;
     }
+  }
+  else {
+    argument = commandEnd;
   }
 
   if (strcmp(line, "help") == 0) {
