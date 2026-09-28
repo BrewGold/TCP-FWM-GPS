@@ -124,9 +124,21 @@ uint32_t lastEthernetCheckMs = 0;
 #define SPEED_EXIT_STOP_MS         0.30
 
 // WiFi AP + TCP diagnóstico
-const char wifiSsid[] = "FWD-GPS-Diag";
-const char wifiPassword[] = "12345678";
-const uint16_t wifiTcpPort = 15920;
+#ifndef WIFI_AP_SSID
+#define WIFI_AP_SSID "FWD-GPS-Diag"
+#endif
+
+#ifndef WIFI_AP_PASSWORD
+#define WIFI_AP_PASSWORD "12345678"
+#endif
+
+#ifndef WIFI_TCP_PORT
+#define WIFI_TCP_PORT 15920
+#endif
+
+const char wifiSsid[] = WIFI_AP_SSID;
+const char wifiPassword[] = WIFI_AP_PASSWORD;
+const uint16_t wifiTcpPort = WIFI_TCP_PORT;
 
 WiFiServer diagTcpServer(wifiTcpPort);
 WiFiClient diagTcpClient;
@@ -1109,7 +1121,7 @@ void applyAntennaOffset(
   double offsetRadians =
     OFFSET_M_VAR / EARTH_RADIUS_M;
 
-  double latitudeOffset =
+  double latitudeOffsetRadians =
     offsetRadians * cos(bearingRadians);
 
   double latitudeCosine =
@@ -1119,16 +1131,22 @@ void applyAntennaOffset(
     return;
   }
 
-  double longitudeOffset =
+  double longitudeOffsetRadians =
     offsetRadians *
     sin(bearingRadians) /
     latitudeCosine;
 
+  double latitudeOffsetDegrees =
+    radiansToDegrees(latitudeOffsetRadians);
+
+  double longitudeOffsetDegrees =
+    radiansToDegrees(longitudeOffsetRadians);
+
   *correctedLat =
-    rawLat + latitudeOffset;
+    rawLat + latitudeOffsetDegrees;
 
   *correctedLon =
-    rawLon + longitudeOffset;
+    rawLon + longitudeOffsetDegrees;
 }
 
 // ============================================================================
