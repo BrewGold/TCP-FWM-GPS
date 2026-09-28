@@ -833,34 +833,10 @@ void parsePUBX00(const char* line) {
   bool hasCarrSolnDetected = false;
   int carrSolnValue = -1;
   const char* solutionType = "UNKNOWN";
-  bool expectCarrSolnValue = false;
 
   for (int i = 2; i < fieldCount; i++) {
     if (fields[i] == nullptr ||
         fields[i][0] == '\0') {
-      continue;
-    }
-
-    if (expectCarrSolnValue) {
-      expectCarrSolnValue = false;
-      char* endPointer = nullptr;
-      long parsedValue = strtol(
-        fields[i],
-        &endPointer,
-        10
-      );
-
-      if (endPointer != fields[i] &&
-          endPointer != nullptr &&
-          *endPointer == '\0') {
-        carrSolnValue = (int)parsedValue;
-        hasCarrSolnDetected = true;
-
-        if (carrSolnValue == CARR_SOLN_HAS) {
-          hasDetected = true;
-        }
-      }
-
       continue;
     }
 
@@ -889,11 +865,6 @@ void parsePUBX00(const char* line) {
       if (strcmp(solutionType, "HAS") == 0) {
         hasDetected = true;
       }
-    }
-
-    if (strcmp(fields[i], "carrSoln") == 0) {
-      expectCarrSolnValue = true;
-      continue;
     }
 
     if (strncmp(fields[i], "carrSoln=", 9) == 0) {
