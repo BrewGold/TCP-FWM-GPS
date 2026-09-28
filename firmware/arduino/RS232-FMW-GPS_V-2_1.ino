@@ -813,17 +813,22 @@ bool parseRMC(const char* line) {
     return false;
   }
 
-  double speedKnots = strtod(
-    fields[7],
-    nullptr
-  );
+  if (fields[7][0] == '\0' ||
+      fields[8][0] == '\0') {
+    return false;
+  }
 
-  double course = strtod(
-    fields[8],
-    nullptr
-  );
+  double speedKnots = 0.0;
+  double course = 0.0;
 
-  if (!isfinite(speedKnots)) {
+  if (!parseDoubleField(
+        fields[7],
+        &speedKnots
+      ) ||
+      !parseDoubleField(
+        fields[8],
+        &course
+      )) {
     return false;
   }
 
@@ -1647,7 +1652,7 @@ void createGCGGA(
   snprintf(
     output,
     outputSize,
-    "$GCGGA,%s,%s,%c,%s,%c,%d,%02d,%s,%s,M,0.0,M,,",
+    "$GCGGA,%s,%s,%c,%s,%c,%d,%d,%s,%s,M,0.0,M,,",
     utcTime,
     latitudeText,
     latitudeHemisphere,
@@ -2028,7 +2033,19 @@ void processTcpCommand(char* line) {
   }
 
   if (strcmp(line, "freq") == 0) {
-    long hz = strtol(argument, nullptr, 10);
+    double hzValue = 0.0;
+
+    if (!parseDoubleField(argument, &hzValue)) {
+      tcpPrintf("ERROR: Valor inválido\r\n");
+      return;
+    }
+
+    long hz = (long)hzValue;
+
+    if ((double)hz != hzValue) {
+      tcpPrintf("ERROR: freq debe ser entero (1-10)\r\n");
+      return;
+    }
 
     if (hz < 1 || hz > 10) {
       tcpPrintf("ERROR: freq fuera de rango (1-10)\r\n");
