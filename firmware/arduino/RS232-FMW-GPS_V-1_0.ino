@@ -1336,6 +1336,16 @@ int getOutputFixQuality() {
     return 0;
   }
 
+  if (movementState == LOCKED &&
+      lockedValid) {
+    return 4;
+  }
+
+  if (hasActive &&
+      hasCarrSoln == CARR_SOLN_HAS) {
+    return 4;
+  }
+
   if (gnssFixQuality < 1) {
     return 1;
   }
