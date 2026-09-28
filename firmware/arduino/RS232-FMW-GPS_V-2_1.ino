@@ -1541,15 +1541,11 @@ void formatLatitude(
   *hemisphere =
     latitude >= 0.0 ? 'N' : 'S';
 
-  int minuteInt = (int)minutes;
-  int minuteFrac = (int)round(
-    (minutes - minuteInt) * 10000.0
-  );
-
-  if (minuteFrac >= 10000) {
-    minuteFrac -= 10000;
-    minuteInt++;
-  }
+  long minuteScaled = lround(minutes * 10000.0);
+  int minuteInt =
+    (int)(minuteScaled / 10000L);
+  int minuteFrac =
+    (int)(minuteScaled % 10000L);
 
   if (minuteInt >= 60) {
     minuteInt -= 60;
@@ -1581,15 +1577,11 @@ void formatLongitude(
   *hemisphere =
     longitude >= 0.0 ? 'E' : 'W';
 
-  int minuteInt = (int)minutes;
-  int minuteFrac = (int)round(
-    (minutes - minuteInt) * 10000.0
-  );
-
-  if (minuteFrac >= 10000) {
-    minuteFrac -= 10000;
-    minuteInt++;
-  }
+  long minuteScaled = lround(minutes * 10000.0);
+  int minuteInt =
+    (int)(minuteScaled / 10000L);
+  int minuteFrac =
+    (int)(minuteScaled % 10000L);
 
   if (minuteInt >= 60) {
     minuteInt -= 60;
@@ -2156,6 +2148,7 @@ void handleTcpServer() {
     }
 
     diagTcpClient = newClient;
+    newClient = WiFiClient();
     tcpLineIndex = 0;
 
     tcpPrintf("Cliente conectado\r\n");
