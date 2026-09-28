@@ -1368,13 +1368,13 @@ void updateMovementState() {
   bool ggaFresh =
     (now - lastGgaMs) <= GGA_FRESHNESS_MS;
 
-  if ((now - lastPubxMs) > PUBX_FRESHNESS_MS &&
+  if (lastPubxMs != 0 &&
+      (now - lastPubxMs) > PUBX_FRESHNESS_MS &&
       (hasActive ||
        hasCarrSoln >= 0 ||
        strcmp(hasSolutionType, "UNKNOWN") != 0)) {
     hasActive = false;
     hasCarrSoln = -1;
-    lastPubxMs = 0;
     strncpy(
       hasSolutionType,
       "UNKNOWN",
