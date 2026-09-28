@@ -308,6 +308,8 @@ int gnssLineIndex = 0;
 char tcpLine[120];
 int tcpLineIndex = 0;
 uint32_t lastTcpDiagMs = 0;
+bool wifiApReady = false;
+uint32_t lastWiFiRetryMs = 0;
 
 // ============================================================================
 // DIAGNÓSTICO
@@ -1296,11 +1298,6 @@ int getOutputFixQuality() {
     return 0;
   }
 
-  if (movementState == LOCKED &&
-      lockedValid) {
-    return 4;
-  }
-
   if (hasActive) {
     return 2;
   }
@@ -1803,22 +1800,14 @@ bool initializeWiFiAp() {
     wifiPassword
   );
 
-  if (status != WL_AP_LISTENING) {
-    uint32_t startMs = millis();
-
-    while (
-      WiFi.status() != WL_AP_LISTENING &&
-      millis() - startMs < 10000
-    ) {
-      delay(100);
-    }
-  }
-
-  if (WiFi.status() != WL_AP_LISTENING) {
-    Serial.println("[WIFI] Error al iniciar AP");
+  if (status != WL_AP_LISTENING &&
+      WiFi.status() != WL_AP_LISTENING) {
+    Serial.println("[WIFI] AP en arranque (no bloqueante)");
+    wifiApReady = false;
     return false;
   }
 
+  wifiApReady = true;
   diagTcpServer.begin();
 
   Serial.print("[WIFI] AP activo: ");
@@ -1829,6 +1818,48 @@ bool initializeWiFiAp() {
   Serial.println(wifiTcpPort);
 
   return true;
+}
+
+void maintainWiFiAp() {
+  if (WiFi.status() == WL_NO_MODULE) {
+    wifiApReady = false;
+    return;
+  }
+
+  if (wifiApReady) {
+    if (WiFi.status() != WL_AP_LISTENING) {
+      wifiApReady = false;
+      Serial.println("[WIFI] AP detenido, reintentando");
+    }
+
+    return;
+  }
+
+  uint32_t now = millis();
+
+  if (now - lastWiFiRetryMs < 5000) {
+    return;
+  }
+
+  lastWiFiRetryMs = now;
+
+  int status = WiFi.beginAP(
+    wifiSsid,
+    wifiPassword
+  );
+
+  if (status == WL_AP_LISTENING ||
+      WiFi.status() == WL_AP_LISTENING) {
+    wifiApReady = true;
+    diagTcpServer.begin();
+
+    Serial.print("[WIFI] AP activo: ");
+    Serial.print(wifiSsid);
+    Serial.print(" @ ");
+    Serial.print(WiFi.localIP());
+    Serial.print(":");
+    Serial.println(wifiTcpPort);
+  }
 }
 
 void sendTcpHelp() {
@@ -2038,11 +2069,18 @@ void processTcpCommand(char* line) {
 }
 
 void handleTcpServer() {
+  if (!wifiApReady) {
+    return;
+  }
+
   WiFiClient newClient = diagTcpServer.available();
 
   if (newClient) {
-    if (diagTcpClient && diagTcpClient.connected()) {
-      diagTcpClient.stop();
+    if (diagTcpClient &&
+        diagTcpClient.connected()) {
+      newClient.print("ERROR: Ya existe un cliente conectado\r\n");
+      newClient.stop();
+      return;
     }
 
     diagTcpClient = newClient;
@@ -2335,7 +2373,7 @@ void setup() {
 
   if (!initializeWiFiAp()) {
     Serial.println(
-      "[SETUP] WiFi AP no disponible"
+      "[SETUP] WiFi AP pendiente (reintento en loop)"
     );
   }
 
@@ -2349,6 +2387,8 @@ void setup() {
 // ============================================================================
 
 void loop() {
+  maintainWiFiAp();
+
   maintainEthernet();
 
   readGNSS();
