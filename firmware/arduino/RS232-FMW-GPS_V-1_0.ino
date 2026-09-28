@@ -1340,7 +1340,7 @@ int getOutputFixQuality() {
   if (strcmp(hasSolutionType, "HAS") == 0 ||
       hasActive) {
     if (hasCarrSoln == 2 ||
-        strcmp(hasSolutionType, "RTK") == 0) {
+        hasCarrSoln >= 5) {
       return 4;
     }
 
