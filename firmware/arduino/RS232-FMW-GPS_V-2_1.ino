@@ -1322,8 +1322,8 @@ void updateMovementState() {
     currentSpeedMS = 0.0;
   }
 
-  bool speedForStop = speedFresh ||
-                      currentSpeedMS <= 0.0001;
+  bool speedNearZero =
+    currentSpeedMS <= 0.0001;
 
   if (!ggaFresh) {
     gnssValid = false;
@@ -1334,8 +1334,12 @@ void updateMovementState() {
 
   switch (movementState) {
     case MOVING: {
-      if (speedForStop &&
-          currentSpeedMS < SPEED_ENTER_STOP_MS_VAR) {
+      bool speedAllowsStop =
+        (speedFresh &&
+         currentSpeedMS < SPEED_ENTER_STOP_MS_VAR) ||
+        (!speedFresh && speedNearZero);
+
+      if (speedAllowsStop) {
         if (lastStopCheckMs == 0) {
           lastStopCheckMs = now;
         }
@@ -1788,10 +1792,17 @@ void transmitEthernet(
     );
   }
 
-  ethernetClient.write(
+  size_t sentenceLength = strlen(sentence);
+
+  size_t bytesWritten = ethernetClient.write(
     (const uint8_t*)sentence,
-    strlen(sentence)
+    sentenceLength
   );
+
+  if (bytesWritten != sentenceLength) {
+    Serial.println("[ETH] Error TX parcial, reconectando");
+    ethernetClient.stop();
+  }
 }
 
 // ============================================================================
@@ -2177,7 +2188,7 @@ void sendTcpDiagnostic() {
 
   char line[240];
 
-  snprintf(
+  int result = snprintf(
     line,
     sizeof(line),
     "[%05lu] GNSS:%s LAT:%.6f LON:%.6f ALT:%.1f SAT:%d HDOP:%s SPEED:%.2f STATE:%d HAS:%d IMU:%d LOCK:%d\r\n",
@@ -2194,6 +2205,15 @@ void sendTcpDiagnostic() {
     bnoAvailable ? 1 : 0,
     lockedValid ? 1 : 0
   );
+
+  if (result < 0) {
+    return;
+  }
+
+  if (result >= (int)sizeof(line)) {
+    diagTcpClient.print("ERROR: Diagnóstico truncado\r\n");
+    return;
+  }
 
   diagTcpClient.print(line);
 }
