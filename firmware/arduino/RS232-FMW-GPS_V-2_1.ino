@@ -1115,7 +1115,7 @@ void applyAntennaOffset(
   }
 
   double bearing =
-    normalizeAngle(yaw + 270.0);
+    normalizeAngle(yaw + 90.0);
 
   double bearingRadians =
     degreesToRadians(bearing);
@@ -2081,6 +2081,10 @@ void handleTcpServer() {
       newClient.print("ERROR: Ya existe un cliente conectado\r\n");
       newClient.stop();
       return;
+    }
+
+    if (diagTcpClient) {
+      diagTcpClient.stop();
     }
 
     diagTcpClient = newClient;
