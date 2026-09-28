@@ -1326,6 +1326,8 @@ void clearAverageBuffers() {
 }
 
 int getOutputFixQuality() {
+  uint32_t now = millis();
+
   if (!gnssValid) {
     return 0;
   }
@@ -1333,6 +1335,14 @@ int getOutputFixQuality() {
   if (movementState == LOCKED &&
       lockedValid) {
     return 4;
+  }
+
+  bool pubxFresh =
+    (lastPubxMs > 0) &&
+    ((now - lastPubxMs) <= PUBX_FRESHNESS_MS);
+
+  if (!pubxFresh) {
+    return 1;
   }
 
   if (strcmp(hasSolutionType, "RTK") == 0) {
