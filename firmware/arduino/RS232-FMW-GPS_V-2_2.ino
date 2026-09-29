@@ -77,6 +77,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <ctype.h>
+#include "wifi_credentials.h"
 
 // ============================================================================
 // CONFIGURACIÓN
@@ -113,8 +114,8 @@ uint32_t lastEthernetCheckMs = 0;
 // WiFi
 // Credenciales hardcodeadas solo para la prueba temporal.
 // Sustituir posteriormente por configuración dinámica/BLE.
-const char wifiSSID[] = "POCO F3";
-const char wifiPass[] = "igqy0254";
+const char wifiSSID[] = WIFI_SSID;
+const char wifiPass[] = WIFI_PASS;
 const uint16_t wifiDiagPort = 15920;
 const uint32_t wifiConnectTimeoutMs = 30000;
 

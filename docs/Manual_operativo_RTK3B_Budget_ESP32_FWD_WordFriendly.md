@@ -307,8 +307,11 @@ IP:         asignada por DHCP y mostrada por Serial
 TCP:        15920
 ```
 
-Las credenciales están hardcodeadas únicamente para esta prueba y deberán
-sustituirse posteriormente por configuración dinámica/BLE.
+Antes de compilar, copiar `firmware/arduino/wifi_credentials.example.h` como
+`wifi_credentials.h` y completar allí las credenciales temporales
+proporcionadas. El archivo resultante está ignorado para no publicar la
+contraseña. Esta configuración deberá sustituirse posteriormente por
+configuración dinámica/BLE.
 
 ====================================================
 

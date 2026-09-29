@@ -51,7 +51,10 @@ La versión actual incluye:
 - **Modo**: cliente temporal conectado al hotspot `POCO F3`
 - **IP**: asignada por DHCP y mostrada por el monitor serie
 - **TCP**: puerto `15920`
-- **Nota**: las credenciales están hardcodeadas solo para esta prueba y se sustituirán por configuración dinámica/BLE
+- **Credenciales**: copiar `wifi_credentials.example.h` como
+  `wifi_credentials.h` y completar allí los valores temporales proporcionados;
+  este archivo está ignorado para evitar publicar la contraseña
+- **Nota**: esta configuración temporal se sustituirá posteriormente por configuración dinámica/BLE
 
 ---
 

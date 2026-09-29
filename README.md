@@ -72,7 +72,11 @@ Flujo principal:
 - Modo cliente temporal para validar el firmware con el hotspot `POCO F3`
 - IP asignada por DHCP, mostrada por el monitor serie
 - Puerto TCP: `15920`
-- Las credenciales están hardcodeadas solo para esta prueba y se sustituirán por configuración dinámica/BLE
+- Las credenciales temporales se cargan desde el archivo local ignorado
+  `firmware/arduino/wifi_credentials.h`; copiar
+  `wifi_credentials.example.h`, completar los valores proporcionados y no
+  versionar el archivo resultante
+- Esta configuración temporal se sustituirá posteriormente por configuración dinámica/BLE
 
 **Comandos Rev.2.2:**
 - `freq <1-10>` — salida GGA/FWD (Hz)
