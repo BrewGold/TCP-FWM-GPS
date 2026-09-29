@@ -46,9 +46,9 @@
     Sin RMC, sin otros mensajes
 
   TERMINAL TCP WiFi (Rev.2.2):
-    SSID: FWD-GPS-Diag
-    Contraseña: 12345678
-    Puerto: 15920 (192.168.4.1:15920)
+    Modo cliente temporal para validación con hotspot móvil
+    SSID: POCO F3
+    Puerto: 15920 (IP asignada por DHCP)
 
     Comandos:
       freq <1-10>        - Cambia frecuencia de salida GGA (Hz)
@@ -111,12 +111,16 @@ bool ethernetReady = false;
 uint32_t lastEthernetCheckMs = 0;
 
 // WiFi
-const char wifiSSID[] = "FWD-GPS-Diag";
-const char wifiPass[] = "12345678";
+// Credenciales hardcodeadas solo para la prueba temporal.
+// Sustituir posteriormente por configuración dinámica/BLE.
+const char wifiSSID[] = "POCO F3";
+const char wifiPass[] = "igqy0254";
 const uint16_t wifiDiagPort = 15920;
+const uint32_t wifiConnectTimeoutMs = 30000;
 
 WiFiServer diagServer(wifiDiagPort);
 WiFiClient diagClient;
+bool wifiReady = false;
 
 // Navegación
 #define OFFSET_M_DEFAULT           0.55
@@ -1153,32 +1157,39 @@ void transmitEthernet(const char* sentence) {
 // WiFi - Rev.2.2
 // ============================================================================
 
-bool initializeWiFiAP() {
-  Serial.println("[WiFi] Iniciando AP...");
+bool initializeWiFiClient() {
+  Serial.print("[WiFi] Iniciando modo cliente. SSID: ");
+  Serial.println(wifiSSID);
 
-  WiFi.beginAP(wifiSSID, wifiPass);
+  WiFi.begin(wifiSSID, wifiPass);
 
   uint32_t startMs = millis();
-  while (WiFi.status() != WL_AP_LISTENING) {
-    if (millis() - startMs > 5000) {
-      Serial.println("[WiFi] Timeout iniciando AP");
+  IPAddress localIP(0, 0, 0, 0);
+  while (localIP == IPAddress(0, 0, 0, 0)) {
+    if (millis() - startMs >= wifiConnectTimeoutMs) {
+      Serial.println();
+      Serial.println("[WiFi] Timeout esperando conexión y dirección IP por DHCP");
       return false;
     }
-    delay(100);
+    delay(500);
+    Serial.print(".");
+    localIP = WiFi.localIP();
   }
 
-  Serial.print("[WiFi] AP listo: ");
-  Serial.print(wifiSSID);
-  Serial.print(" @ ");
-  Serial.print(WiFi.localIP());
-  Serial.print(":");
+  Serial.println();
+  Serial.print("[WiFi] Conectado. IP asignada: ");
+  Serial.println(localIP);
+  Serial.print("[WiFi] Servidor TCP iniciado en puerto ");
   Serial.println(wifiDiagPort);
 
   diagServer.begin();
+  wifiReady = true;
   return true;
 }
 
 void handleWiFiClient() {
+  if (!wifiReady) return;
+
   WiFiClient newClient = diagServer.available();
 
   if (newClient) {
@@ -1536,10 +1547,12 @@ void setup() {
   Serial.println("LED2:     D6 / OUT6 (Movimiento)");
   Serial.println("SD:       D4 desactivada");
   Serial.println("==========================================");
-  Serial.println("WiFi AP (Rev.2.2):");
-  Serial.println("  SSID: FWD-GPS-Diag");
-  Serial.println("  Pwd:  12345678");
-  Serial.println("  TCP:  192.168.4.1:15920");
+  Serial.println("WiFi cliente temporal (Rev.2.2):");
+  Serial.print("  SSID: ");
+  Serial.println(wifiSSID);
+  Serial.println("  IP:   asignada por DHCP");
+  Serial.print("  TCP:  <IP asignada>:");
+  Serial.println(wifiDiagPort);
   Serial.println("  Cmds: freq, offset, decl, speed_*, avg, diag, status, help");
   Serial.println("==========================================");
 
@@ -1568,8 +1581,8 @@ void setup() {
     Serial.println("[SETUP] Ethernet no disponible");
   }
 
-  if (!initializeWiFiAP()) {
-    Serial.println("[SETUP] WiFi AP no disponible");
+  if (!initializeWiFiClient()) {
+    Serial.println("[SETUP] WiFi cliente no disponible; servidor TCP deshabilitado");
   }
 
   Serial.println("[SETUP] Sistema preparado");

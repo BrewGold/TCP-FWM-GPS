@@ -4,7 +4,7 @@ Este directorio contiene la implementación funcional del firmware para el Ardui
 
 ## Versión actual
 
-- `RS232-FMW-GPS_V-2_1.ino` — **Rev.2.1**
+- `RS232-FMW-GPS_V-2_2.ino` — **Rev.2.2**
 
 La versión actual incluye:
 
@@ -14,7 +14,7 @@ La versión actual incluye:
 - Detección HAS mediante `PUBX,00`
 - LEDs D5/D6 con estados GNSS + IMU + HAS + movimiento
 - Ethernet W5500 a 192.168.1.122:15919
-- WiFi AP para diagnóstico / control por TCP
+- WiFi cliente temporal para diagnóstico / control por TCP
 
 ---
 
@@ -48,9 +48,10 @@ La versión actual incluye:
 - **Destino**: `192.168.1.122:15919`
 
 ### WiFi diagnóstico / control
-- **AP SSID**: `FWD-GPS-Diag`
-- **Contraseña**: `12345678`
-- **TCP**: `192.168.4.1:15920`
+- **Modo**: cliente temporal conectado al hotspot `POCO F3`
+- **IP**: asignada por DHCP y mostrada por el monitor serie
+- **TCP**: puerto `15920`
+- **Nota**: las credenciales están hardcodeadas solo para esta prueba y se sustituirán por configuración dinámica/BLE
 
 ---
 
@@ -129,7 +130,7 @@ Con fix quality según el estado:
 
 ## 6) Diagnóstico TCP / WiFi
 
-La Rev.2.1 incorpora una interfaz TCP por WiFi para diagnosticar y ajustar parámetros en campo sin depender del USB.
+La Rev.2.2 usa temporalmente una interfaz TCP como cliente WiFi para diagnosticar y ajustar parámetros durante la validación.
 
 ### Comandos disponibles
 
@@ -177,8 +178,8 @@ Movimiento: LOCKED
 ## 7) Checklist rápido de validación
 
 1. Conectar Arduino por alimentación externa adecuada.
-2. Confirmar que el WiFi AP `FWD-GPS-Diag` aparece.
-3. Conectar desde Android al TCP `192.168.4.1:15920`.
+2. Activar el hotspot `POCO F3` y confirmar por Serial que el Arduino recibe una IP por DHCP.
+3. Conectar desde un equipo del mismo hotspot a la IP mostrada por Serial, puerto `15920`.
 4. Verificar que llegan líneas tipo:
    - `[time] GNSS:OK LAT:... LON:... ALT:...`
 5. Confirmar `PUBX,00` y `HAS activo` en logs.
@@ -210,7 +211,7 @@ SAVECONFIG
 
 ## 9) Archivos relevantes
 
-- `RS232-FMW-GPS_V-2_1.ino` — firmware actual de referencia
+- `RS232-FMW-GPS_V-2_2.ino` — firmware actual de referencia
 - `README.md` — documentación general del proyecto
 - `CHANGELOG.md` — historial de versiones y novedades
 
@@ -218,6 +219,7 @@ SAVECONFIG
 
 ## 10) Versiones
 
+- **Rev.2.2**: WiFi cliente temporal + control TCP + diagnóstico independiente
 - **Rev.2.1**: WiFi AP + control TCP + diagnóstico interactivo
 - **Rev.2**: HAS, LEDs, 10 Hz, BNO085, Ethernet
 - **Rev.1**: base funcional con promedio de coordenadas y salida FWD

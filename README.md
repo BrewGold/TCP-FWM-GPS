@@ -20,7 +20,7 @@ Proporcionar al Dynatest FWD una posición GNSS mejorada mediante:
 - **IMU**: Adafruit BNO085/BNO086 → I2C (SDA/SCL)
 - **Salida FWD**: Software-Serial D2 @ 38400 bps (GGA 10 Hz)
 - **Ethernet**: Shield W5500 → servidor TCP 192.168.1.122:15919
-- **WiFi AP**: diagnóstico y control por TCP 192.168.4.1:15920
+- **WiFi cliente temporal**: diagnóstico y control por TCP en el puerto 15920
 - **LEDs**: D5 (GNSS+IMU+HAS), D6 (Movimiento)
 
 Flujo principal:
@@ -33,7 +33,7 @@ Flujo principal:
 6. Aplica offset antena-pistón si el magnetómetro está operativo.
 7. Emite GGA corregida a FWD por D2 @ 38400 bps.
 8. Envía la misma GGA por Ethernet a un servidor externo.
-9. WiFi AP ofrece terminal TCP para diagnóstico y control en tiempo real.
+9. WiFi cliente ofrece terminal TCP para diagnóstico y control en tiempo real.
 10. LEDs reflejan GNSS, IMU, HAS y movimiento/bloqueo.
 
 ## Prioridad de solución GNSS
@@ -69,9 +69,10 @@ Flujo principal:
 - ✅ `OUTPUT` y `DIAG` están separadas conceptualmente
 
 **Terminal TCP:**
-- SSID: `FWD-GPS-Diag`
-- Contraseña: `12345678`
-- IP del AP: `192.168.4.1:15920`
+- Modo cliente temporal para validar el firmware con el hotspot `POCO F3`
+- IP asignada por DHCP, mostrada por el monitor serie
+- Puerto TCP: `15920`
+- Las credenciales están hardcodeadas solo para esta prueba y se sustituirán por configuración dinámica/BLE
 
 **Comandos Rev.2.2:**
 - `freq <1-10>` — salida GGA/FWD (Hz)

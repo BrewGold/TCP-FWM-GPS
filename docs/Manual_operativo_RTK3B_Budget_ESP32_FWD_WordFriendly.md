@@ -21,7 +21,7 @@ Implementar y validar un sistema GNSS para Dynatest FWD donde:
 - El Arduino aplica la corrección antena-pistón mediante BNO085 cuando el IMU está disponible.
 - El Arduino genera GGA para el FWD por D2 a 38400 baudios.
 - La misma GGA se transmite simultáneamente por Ethernet.
-- El WiFi AP permite consultar el estado y ajustar parámetros mediante TCP.
+- El cliente WiFi temporal permite consultar el estado y ajustar parámetros mediante TCP.
 - El diagnóstico TCP es independiente de la frecuencia de salida GGA y se envía cada 5 s por defecto.
 
 La salida de posicionamiento y el diagnóstico son funciones separadas:
@@ -62,7 +62,7 @@ Importante:
 | BNO085 | I2C SDA/SCL | 100 kHz, dirección 0x4B |
 | Ethernet CS | D10 | W5500 |
 | SD desactivada | D4 | Chip select en HIGH |
-| WiFi diagnóstico | AP integrado | TCP 192.168.4.1:15920 |
+| WiFi diagnóstico | Cliente temporal | TCP en puerto 15920, IP por DHCP |
 
 2.3 Ethernet
 
@@ -99,7 +99,7 @@ Flujo principal:
 6) Al completar el promedio cambia a `LOCKED`.
 7) El Arduino genera GGA y la transmite por D2.
 8) La misma GGA se transmite por Ethernet.
-9) El WiFi AP entrega diagnóstico cada 5 s por defecto.
+9) El cliente WiFi entrega diagnóstico cada 5 s por defecto.
 10) El terminal TCP acepta cambios de configuración en tiempo real.
 
 El Dynatest recibe únicamente GGA. No se deben reenviar al Dynatest:
@@ -295,33 +295,37 @@ Al arrancar:
 
 - D5 y D6 parpadean durante aproximadamente 5 s.
 - El monitor USB muestra la identificación Rev.2.2.
-- El Arduino inicializa GNSS, BNO085, Ethernet y WiFi AP.
-- El AP aparece como `FWD-GPS-Diag`.
+- El Arduino inicializa GNSS, BNO085, Ethernet y el cliente WiFi.
+- El Arduino se conecta temporalmente al hotspot `POCO F3`.
 
 Parámetros WiFi:
 
 ```text
-SSID:       FWD-GPS-Diag
-Contraseña: 12345678
-IP AP:      192.168.4.1
+Modo:       cliente temporal
+SSID:       POCO F3
+IP:         asignada por DHCP y mostrada por Serial
 TCP:        15920
 ```
+
+Las credenciales están hardcodeadas únicamente para esta prueba y deberán
+sustituirse posteriormente por configuración dinámica/BLE.
 
 ====================================================
 
 8. TERMINAL TCP REV.2.2
 -----------------------
 
-Conectar el teléfono o PC al AP:
+Activar el hotspot:
 
 ```text
-FWD-GPS-Diag
+POCO F3
 ```
 
-Abrir un cliente TCP y conectar a:
+Esperar en el monitor serie el mensaje de IP asignada. Desde un equipo
+conectado al mismo hotspot, abrir un cliente TCP y conectar a:
 
 ```text
-192.168.4.1:15920
+<IP mostrada por Serial>:15920
 ```
 
 Al conectar se recibe:
@@ -544,8 +548,8 @@ La salida WiFi TCP no sustituye a la salida GGA profesional del FWD. Es un canal
 7. Activar HAS según la configuración compatible con el firmware instalado.
 8. Cargar `RS232-FMW-GPS_V-2_2.ino` en el Arduino UNO R4 WiFi.
 9. Confirmar la prueba de LEDs de arranque.
-10. Confirmar que aparece el AP `FWD-GPS-Diag`.
-11. Conectar al TCP `192.168.4.1:15920`.
+10. Confirmar por Serial que el Arduino se conecta al hotspot `POCO F3` y obtiene una IP.
+11. Conectar al puerto TCP `15920` de la IP mostrada.
 12. Ejecutar `help` y `status`.
 13. Confirmar un diagnóstico periódico `[DIAG]` cada 5 s.
 14. En movimiento, confirmar `STATE=MOVING`.
@@ -756,8 +760,8 @@ Arduino Rev.2.2:
 
 [ ] Firmware cargado
 [ ] Prueba de LEDs completada
-[ ] AP `FWD-GPS-Diag` visible
-[ ] TCP `192.168.4.1:15920` accesible
+[ ] Cliente conectado al hotspot `POCO F3` con IP DHCP
+[ ] TCP `<IP mostrada por Serial>:15920` accesible
 [ ] `help` responde
 [ ] `status` responde
 [ ] Diagnóstico `[DIAG]` llega cada 5 s
