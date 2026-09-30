@@ -11,7 +11,7 @@ Proporcionar al Dynatest FWD una posición GNSS mejorada mediante:
 - Promedio temporal de coordenadas durante la parada.
 - Corrección de offset antena-pistón mediante IMU (BNO085).
 - Presentación del estado GNSS mediante LEDs externos.
-- Terminal TCP interactivo para diagnóstico y control en tiempo real.
+- Diagnóstico y control BLE en tiempo real.
 
 ## Arquitectura (alto nivel)
 
@@ -20,7 +20,7 @@ Proporcionar al Dynatest FWD una posición GNSS mejorada mediante:
 - **IMU**: Adafruit BNO085/BNO086 → I2C (SDA/SCL)
 - **Salida FWD**: Software-Serial D2 @ 38400 bps (GGA 10 Hz)
 - **Ethernet**: Shield W5500 → servidor TCP 192.168.1.122:15919
-- **WiFi AP**: diagnóstico y control por TCP 192.168.4.1:15920
+- **BLE**: servicio personalizado anunciado como `FWD-GPS`
 - **LEDs**: D5 (GNSS+IMU+HAS), D6 (Movimiento)
 
 Flujo principal:
@@ -33,7 +33,7 @@ Flujo principal:
 6. Aplica offset antena-pistón si el magnetómetro está operativo.
 7. Emite GGA corregida a FWD por D2 @ 38400 bps.
 8. Envía la misma GGA por Ethernet a un servidor externo.
-9. WiFi AP ofrece terminal TCP para diagnóstico y control en tiempo real.
+9. BLE ofrece comandos y diagnóstico mediante características de texto.
 10. LEDs reflejan GNSS, IMU, HAS y movimiento/bloqueo.
 
 ## Prioridad de solución GNSS
@@ -51,14 +51,22 @@ Flujo principal:
 
 ## Estructura del repositorio
 
-- `firmware/arduino/RS232-FMW-GPS_V-2_2.ino`: versión actual de firmware.
+- `firmware/arduino/RS232-FMW-GPS_V-3_0.ino`: versión actual de firmware.
 - `firmware/arduino/README.md`: detalle técnico del firmware.
 - `docs/functional-spec-v1.0.md`: especificación funcional completa.
 - `docs/system-architecture.md`: detalle de arquitectura y comunicaciones.
 
 ## Versiones
 
-### Rev.2.2 (Actual)
+### Rev.3.0 (Actual)
+
+**Cambios principales:**
+- ✅ BLE sustituye al AP WiFi/TCP de diagnóstico y control
+- ✅ Ethernet W5500 continúa como canal FWM principal a `192.168.1.122:15919`
+- ✅ COM2 continúa como salida de emergencia/supervisión por D2 a 38400 baud
+- ✅ BNO085 se mantiene provisionalmente; ICM-20948 queda fuera de esta revisión
+
+### Rev.2.2
 
 **Cambios principales:**
 - ✅ Diagnóstico TCP independiente de la frecuencia de salida GGA
@@ -176,7 +184,7 @@ SAVECONFIG
 - Arduino IDE 2.x+
 - Librería: `Adafruit_BNO08x`
 - Librería: `Ethernet` (W5500)
-- Librería: `WiFiS3` (nativa del UNO R4 WiFi)
+- Librería: `ArduinoBLE`
 
 ## Hardware requerido
 

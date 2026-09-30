@@ -4,7 +4,7 @@ Este directorio contiene la implementación funcional del firmware para el Ardui
 
 ## Versión actual
 
-- `RS232-FMW-GPS_V-2_1.ino` — **Rev.2.1**
+- `RS232-FMW-GPS_V-3_0.ino` — **Rev.3.0**
 
 La versión actual incluye:
 
@@ -14,7 +14,7 @@ La versión actual incluye:
 - Detección HAS mediante `PUBX,00`
 - LEDs D5/D6 con estados GNSS + IMU + HAS + movimiento
 - Ethernet W5500 a 192.168.1.122:15919
-- WiFi AP para diagnóstico / control por TCP
+- BLE para diagnóstico / control
 
 ---
 
@@ -47,10 +47,12 @@ La versión actual incluye:
 - **Shield**: W5500
 - **Destino**: `192.168.1.122:15919`
 
-### WiFi diagnóstico / control
-- **AP SSID**: `FWD-GPS-Diag`
-- **Contraseña**: `12345678`
-- **TCP**: `192.168.4.1:15920`
+### BLE diagnóstico / control
+- **Nombre anunciado/local**: `FWD-GPS`
+- **Servicio**: `19B10000-E8F2-537E-4F6C-D104768A1214`
+- **Comando (write)**: `19B10001-E8F2-537E-4F6C-D104768A1214`
+- **Respuesta (read/notify)**: `19B10002-E8F2-537E-4F6C-D104768A1214`
+- **Diagnóstico (read/notify)**: `19B10003-E8F2-537E-4F6C-D104768A1214`
 
 ---
 
@@ -94,7 +96,7 @@ Los valores por defecto son:
 - `RELOCK_DISTANCE_M = 1.0`
 - `MAX_SAMPLES = 160`
 
-En Rev.2.1 estos parámetros pueden modificarse en tiempo real por TCP mediante comandos del terminal.
+En Rev.3.0 estos parámetros pueden modificarse en tiempo real mediante comandos BLE.
 
 ---
 
@@ -123,64 +125,58 @@ Con fix quality según el estado:
 7. En `LOCKED`, transmite la posición corregida; si no hay bloqueo, transmite instantánea con offset si hay yaw.
 8. Emite GGA por D2 hacia el Dynatest a 10 Hz.
 9. Envía la misma trama por Ethernet.
-10. Publica diagnóstico por WiFi TCP y permite comandos interactivos.
+10. Publica diagnóstico por BLE y permite comandos interactivos.
 
 ---
 
-## 6) Diagnóstico TCP / WiFi
+## 6) Diagnóstico BLE
 
-La Rev.2.1 incorpora una interfaz TCP por WiFi para diagnosticar y ajustar parámetros en campo sin depender del USB.
+Rev.3.0 incorpora una interfaz BLE para diagnosticar y ajustar parámetros en campo sin depender del USB.
 
 ### Comandos disponibles
 
-```
+```text
 freq <1-10>        Cambiar frecuencia GNSS (Hz)
 speed_stop <0-1>   Umbral parada (m/s)
 speed_move <0-1>   Umbral movimiento (m/s)
 offset <0-2>       Offset antena-pistón (m)
 decl <-180-180>    Declinación magnética (°)
 avg <5-60>         Ventana promedio (segundos)
+diag <1-60>        Intervalo diagnóstico (segundos)
 status             Mostrar estado actual
 help               Lista de comandos
 ```
 
-### Ejemplo
+Cada escritura contiene un comando ASCII/UTF-8. El firmware elimina espacios y CR/LF de los extremos. Las respuestas se notifican en la característica de respuesta y se imprimen también por USB Serial.
 
+### Diagnóstico y LEDs virtuales
+
+La característica de diagnóstico notifica cada 5 s por defecto con un texto compacto de hasta 240 bytes:
+
+```text
+LED1=BLINK_GREEN;LED2=OFF;GNSS=OK;FIX=1;SATS=25;HDOP=0.8;LAT=37.462140;LON=-6.058661;ALT=20.2;SPEED=0.02;COURSE=146.8;SOLUTION=HAS;HAS=ON;IMU=OK;YAW=1.5;STATE=MOVING;LOCK=NO;N=0;HZ=10;CFG=15/0.55/1.0
 ```
-> help
-=== COMANDOS DISPONIBLES ===
-freq <1-10>        - Frecuencia en Hz
-speed_stop <0-1>   - Umbral parada (m/s)
-speed_move <0-1>   - Umbral movimiento (m/s)
-offset <0-2>       - Offset antena (m)
-decl <-180-180>    - Declinación magnética (°)
-avg <5-60>         - Ventana promedio (s)
-status             - Mostrar estado actual
-help               - Este mensaje
-===========================
 
-> freq 5
-OK: Frecuencia cambiada a 5 Hz (200 ms)
+- `LED1`: `OFF` sin GNSS, `BLINK_RED` sin IMU, `BLINK_YELLOW` sin HAS, `ON/GREEN` con HAS y bloqueo, `BLINK_GREEN` en los demás casos.
+- `LED2`: `OFF` en `MOVING`, `BLINK_YELLOW` en `AVERAGING`, `ON/GREEN` en `LOCKED`.
 
-> status
-=== ESTADO ACTUAL ===
-Frecuencia: 5 Hz (200 ms)
-Offset antena: 0.55 m
-Estado GNSS: OK
-HAS activo: SI
-Movimiento: LOCKED
-...
-```
+### Prueba con nRF Connect
+
+1. Buscar y conectar a `FWD-GPS`.
+2. Activar notificaciones en las características de respuesta y diagnóstico.
+3. Escribir `status` o `help` como texto UTF-8 en la característica de comando.
+4. Verificar la respuesta inmediata y las notificaciones de diagnóstico periódicas.
+
+Para recibir una notificación completa, solicitar MTU 247 (nRF Connect lo negocia normalmente). Si un cliente conserva el MTU BLE mínimo, debe leer la característica completa mediante `read`; los campos LED se priorizan al principio del valor.
 
 ---
 
 ## 7) Checklist rápido de validación
 
 1. Conectar Arduino por alimentación externa adecuada.
-2. Confirmar que el WiFi AP `FWD-GPS-Diag` aparece.
-3. Conectar desde Android al TCP `192.168.4.1:15920`.
-4. Verificar que llegan líneas tipo:
-   - `[time] GNSS:OK LAT:... LON:... ALT:...`
+2. Confirmar que nRF Connect detecta `FWD-GPS`.
+3. Conectar y suscribirse a respuesta y diagnóstico.
+4. Verificar que llegan campos `GNSS`, `LAT`, `LON`, `LED1` y `LED2`.
 5. Confirmar `PUBX,00` y `HAS activo` en logs.
 6. Confirmar `GGA` en salida FWD por D2 a 10 Hz.
 7. Validar LEDs en estados reales del sistema.
@@ -204,13 +200,13 @@ SAVECONFIG
 ```
 
 - La corrección de antena se aplica solo si el BNO085 está disponible.
-- El diagnostic TCP se usa para pruebas de campo y ajuste sin reprogramar.
+- BNO085 sigue siendo provisional; Rev.3.0 no integra todavía ICM-20948.
 
 ---
 
 ## 9) Archivos relevantes
 
-- `RS232-FMW-GPS_V-2_1.ino` — firmware actual de referencia
+- `RS232-FMW-GPS_V-3_0.ino` — firmware actual de referencia
 - `README.md` — documentación general del proyecto
 - `CHANGELOG.md` — historial de versiones y novedades
 
@@ -218,6 +214,7 @@ SAVECONFIG
 
 ## 10) Versiones
 
+- **Rev.3.0**: BLE + Ethernet primario + COM2 emergencia/supervisión
 - **Rev.2.1**: WiFi AP + control TCP + diagnóstico interactivo
 - **Rev.2**: HAS, LEDs, 10 Hz, BNO085, Ethernet
 - **Rev.1**: base funcional con promedio de coordenadas y salida FWD
