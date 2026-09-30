@@ -25,6 +25,11 @@
     CONFIG NMEA PUBX ENABLE
     ENABLE HAS
     SAVECONFIG
+
+  IMU BNO085 en UNO R4:
+    - Preferir bus Wire (SDA/SCL principal) a 100 kHz
+    - Evitar Wire1/Qwiic si hay fallos SHTP/SH2 intermitentes
+    - Conectar RST del BNO085 a A3 para reinicio por hardware
 */
 
 #include <Arduino.h>
@@ -56,7 +61,11 @@
 #define LED1_PIN                  5
 #define LED2_PIN                  6
 
-#define BNO085_ADDRESS            0x4B
+#define BNO085_ADDRESS_PRIMARY    0x4A
+#define BNO085_ADDRESS_SECONDARY  0x4B
+#define BNO085_RST_PIN            A3
+#define BNO085_RESET_PULSE_MS     10
+#define BNO085_BOOT_WAIT_MS       50
 #define I2C_CLOCK_HZ              100000
 
 // Prueba visible al arrancar
@@ -212,6 +221,7 @@ uint32_t lastRmcMs = 0;
 bool bnoAvailable = false;
 bool magnetometerActive = false;
 double currentYaw = NAN;
+uint8_t bnoAddressInUse = 0x00;
 bool hasActive = false;
 char hasSolutionType[16] = "UNKNOWN";
 int hasCarrSoln = -1;
@@ -988,12 +998,82 @@ void readGNSS() {
 // BNO085
 // ============================================================================
 
+bool i2cDevicePresent(
+  TwoWire* bus,
+  uint8_t address
+) {
+  if (bus == nullptr) {
+    return false;
+  }
+
+  bus->beginTransmission(address);
+  return (bus->endTransmission() == 0);
+}
+
+void pulseBnoResetPin() {
+  if (BNO085_RST_PIN < 0) {
+    return;
+  }
+
+  digitalWrite(BNO085_RST_PIN, HIGH);
+  delay(1);
+  digitalWrite(BNO085_RST_PIN, LOW);
+  delay(BNO085_RESET_PULSE_MS);
+  digitalWrite(BNO085_RST_PIN, HIGH);
+  delay(BNO085_BOOT_WAIT_MS);
+}
+
 bool initializeBNO085() {
-  if (!bno08x.begin_I2C(
-        BNO085_ADDRESS,
-        &Wire
-      )) {
-    Serial.println("[IMU] No se pudo inicializar BNO085");
+  bnoAddressInUse = 0x00;
+
+  bool hasAddress4A =
+    i2cDevicePresent(
+      &Wire,
+      BNO085_ADDRESS_PRIMARY
+    );
+
+  bool hasAddress4B =
+    i2cDevicePresent(
+      &Wire,
+      BNO085_ADDRESS_SECONDARY
+    );
+
+  if (!hasAddress4A &&
+      !hasAddress4B) {
+    Serial.println(
+      "[IMU] BNO085 no responde en 0x4A/0x4B (Wire)"
+    );
+    Serial.println(
+      "[IMU] Verifica cableado SDA/SCL/RST y evita Qwiic/Wire1"
+    );
+    bnoAvailable = false;
+    magnetometerActive = false;
+    return false;
+  }
+
+  pulseBnoResetPin();
+
+  const uint8_t addresses[] = {
+    BNO085_ADDRESS_PRIMARY,
+    BNO085_ADDRESS_SECONDARY
+  };
+
+  for (uint8_t i = 0; i < 2; i++) {
+    uint8_t address = addresses[i];
+
+    if (!i2cDevicePresent(&Wire, address)) {
+      continue;
+    }
+
+    if (bno08x.begin_I2C(address, &Wire)) {
+      bnoAddressInUse = address;
+      break;
+    }
+  }
+
+  if (bnoAddressInUse == 0x00) {
+    Serial.println("[IMU] begin_I2C falló (SHTP/SH2 no estable)");
+    Serial.println("[IMU] Recomendado: Wire @100kHz + RST A3");
     bnoAvailable = false;
     magnetometerActive = false;
     return false;
@@ -1012,7 +1092,10 @@ bool initializeBNO085() {
   bnoAvailable = true;
   lastBnoDataMs = millis();
 
-  Serial.println("[IMU] BNO085 inicializado");
+  debugPrintf(
+    "[IMU] BNO085 inicializado en 0x%02X (Wire)\n",
+    bnoAddressInUse
+  );
 
   return true;
 }
@@ -1928,7 +2011,7 @@ void setup() {
     "Destino:  192.168.1.122:15919"
   );
   Serial.println(
-    "BNO085:   TWI/I2C @ 100 kHz (geomagnetic yaw)"
+    "BNO085:   Wire (SDA/SCL) @ 100 kHz, reset en A3"
   );
   Serial.println(
     "LED1:     D5 / OUT5"
@@ -1964,6 +2047,16 @@ void setup() {
     LOW
   );
 
+  pinMode(
+    BNO085_RST_PIN,
+    OUTPUT
+  );
+
+  digitalWrite(
+    BNO085_RST_PIN,
+    HIGH
+  );
+
   // Prueba visible de 5 segundos
   startupLedTest();
 
@@ -1986,7 +2079,7 @@ void setup() {
   // COM2 (UART por software, solo TX, compensado)
   softSerialInit();
 
-  // Bus TWI/I2C
+  // Bus TWI/I2C principal (Wire). Evitar Wire1/Qwiic por inestabilidad.
   Wire.begin();
 
   Wire.setClock(

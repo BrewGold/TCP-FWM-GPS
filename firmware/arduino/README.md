@@ -10,7 +10,7 @@ Esta es la versión final que se ha compilado y usado en campo. Sustituye a la v
 
 - GNSS (UM980): RX=44, TX=43, BAUD=115200 (`Serial1`)
 - Salida Dynatest: RX=18, TX=17, BAUD=38400 (`Serial2` → MAX3232)
-- IMU (BNO085): SDA=8, SCL=9 (`Wire1`), I2C 400 kHz, dirección `0x4B`
+- IMU (BNO085): bus `Wire` (SDA/SCL principal), I2C 100 kHz, direcciones `0x4A/0x4B` con auto-detección, reset por `A3`
 - LED_RED: pin 4 (estado GNSS/HAS)
 - LED_GREEN: pin 5 (estado de movimiento/lock)
 
@@ -43,10 +43,10 @@ Esta es la versión final que se ha compilado y usado en campo. Sustituye a la v
 - `DYNATEST_BAUD = 38400`
 
 ### I2C IMU (BNO085)
-- `I2C_SDA = 8`
-- `I2C_SCL = 9`
-- `I2C_FREQ = 400000`
-- Dirección: `0x4B` (bus `Wire1`)
+- Bus recomendado: `Wire` (SDA/SCL principal del UNO R4)
+- `I2C_FREQ = 100000`
+- Direcciones probadas: `0x4A` y `0x4B`
+- `BNO085_RST_PIN = A3` (reinicio hardware antes de `begin_I2C`)
 
 ### LEDs
 - `LED_RED = 4`: estado GNSS/HAS (parpadeo en `PPP_CONVERGING`, fijo en fix/`PPP_ESTABLE`)
@@ -85,7 +85,7 @@ El `fixQ` de salida se calcula según prioridad:
 1. Lee líneas NMEA/propietarias del UM980 por `Serial1` (`$GPGGA`, `$GPRMC`, `#PPPNAVA`/HAS).
 2. Valida checksum y parsea GGA (posición, altitud, satélites, fix) y RMC (velocidad, rumbo).
 3. Actualiza estado PPP/HAS (`SIN_PPP` / `PPP_CONVERGING` / `PPP_ESTABLE`).
-4. Lee yaw del IMU BNO085 (rotation vector) vía `Wire1`, con reintentos e detección de reset.
+4. Lee yaw del IMU BNO085 (geomagnetic rotation vector) vía `Wire` a 100 kHz, con reintentos y detección de reset.
 5. Actualiza la máquina de estados de movimiento (`MOVING` / `AVERAGING` / `LOCKED`).
 6. En `AVERAGING`, acumula muestras de lat/lon/alt/yaw; al completar 15 s calcula medias recortadas (trimmed mean) y media circular del yaw, y aplica el offset antena→pistón.
 7. En `LOCKED`, transmite la posición corregida; en otro caso transmite la posición instantánea (con offset si hay yaw disponible).
@@ -108,6 +108,7 @@ El `fixQ` de salida se calcula según prioridad:
 ## 6) Notas
 
 - Requiere la librería `Adafruit_BNO08x`.
+- Si el escáner I2C ve `0x4A/0x4B` pero `begin_I2C()` falla, revisar `RST` en A3 y evitar Qwiic/Wire1 por posibles problemas de temporización del BNO08x en I2C.
 - Si el receptor Dynatest requiere otro baudrate, ajustar `DYNATEST_BAUD`.
 - La declinación magnética (`DECLINATION_OFFSET`) está calibrada para Madrid; ajustar si se despliega en otra ubicación.
 - Los archivos `rs232_fwd_gps_unificado.ino` y `rs232_fwd_gps_draft_v0_9.ino` se conservan como versiones anteriores/experimentales, no representan el firmware final compilado.
