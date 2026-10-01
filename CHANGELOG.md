@@ -5,6 +5,19 @@ Todos los cambios notables en este proyecto están documentados aquí.
 El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [2.7.0] - 2026-10-01
+
+### ✨ Agregado
+
+- Parser `$GNGST` y diagnóstico BLE de precisión horizontal y vertical.
+- Validación de FIX_IN/HAS antes de entrar o permanecer en `LOCKED`.
+- Consulta de calibración magnética de fábrica mediante `magcal status`.
+
+### 🔄 Modificado
+
+- Estados de dos LEDs y apagado de ambos ante fallos GNSS, IMU o calibración.
+- Declinación fija de -3.5°, offset de montaje de 0° y bienvenida BLE Rev.2.7.
+
 ## [2.1.0] - 2026-09-28
 
 ### ✨ Agregado
