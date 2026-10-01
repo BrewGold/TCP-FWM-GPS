@@ -1,5 +1,5 @@
 /*
-  RS232-FMW-GPS - Rev.2.4 BLE
+  RS232-FMW-GPS - Rev.2.7 BLE
   Arduino UNO R4 WiFi
 
   FUNCIONES:
@@ -12,6 +12,9 @@
   - Ethernet W5500.
   - Diagnóstico Bluetooth Low Energy.
   - WiFi Server eliminado.
+  - Precisión GNGST visible en BLE.
+  - Validación FIX_IN para LOCKED.
+  - Magnetómetro calibrado en fábrica (EEPROM).
 
   BLE:
   - Nombre: FWD-GPS-Diag
@@ -24,9 +27,7 @@
     imu
     com2
     help
-    magcal start
-    magcal stop
-    magcal reset
+    magcal status
     yawoff <-180..180>
 
   LIBRERÍAS:
@@ -78,7 +79,7 @@
 #define EEPROM_MAGIC                0x49434D33UL
 
 #define OFFSET_M_DEFAULT            0.55
-#define DECLINATION_DEG_DEFAULT     1.0
+#define DECLINATION_DEG_DEFAULT     -3.5
 #define EARTH_RADIUS_M              6378137.0
 
 #define STOP_CONFIRMATION_MS        2000
@@ -342,6 +343,9 @@ char hdopText[16] = "1.0";
 uint32_t lastGgaMs = 0;
 uint32_t lastRmcMs = 0;
 uint32_t lastPubxMs = 0;
+double gnsHorizErr = NAN;  // metros
+double gnsVertErr = NAN;   // metros
+uint32_t lastGnstMs = 0;
 
 // ============================================================================
 // VARIABLES ICM-20948
@@ -1053,6 +1057,66 @@ bool parsePUBX00(const char* line) {
 }
 
 // ============================================================================
+// PARSER GNGST
+// ============================================================================
+
+bool parseGNST(const char* line) {
+  if (
+    line == nullptr ||
+    strncmp(line, "$GNGST,", 7) != 0 ||
+    !validateNmeaChecksum(line)
+  ) {
+    return false;
+  }
+
+  char copy[240];
+  strncpy(copy, line, sizeof(copy) - 1);
+  copy[sizeof(copy) - 1] = '\0';
+
+  char* fields[10];
+  int fieldCount = 0;
+  fields[fieldCount++] = copy;
+
+  for (char* pointer = copy; *pointer != '\0'; pointer++) {
+    if (*pointer == ',') {
+      *pointer = '\0';
+      if (fieldCount < 10) {
+        fields[fieldCount++] = pointer + 1;
+      }
+    }
+  }
+
+  if (fieldCount < 6) {
+    return false;
+  }
+
+  double stdLat;
+  double stdLon;
+  double stdAlt;
+
+  if (
+    !parseDoubleField(fields[3], &stdLat) ||
+    !parseDoubleField(fields[4], &stdLon) ||
+    !parseDoubleField(fields[5], &stdAlt) ||
+    stdLat < 0.0 ||
+    stdLon < 0.0 ||
+    stdAlt < 0.0
+  ) {
+    return false;
+  }
+
+  double horizErr = sqrt(stdLat * stdLat + stdLon * stdLon);
+  if (!isfinite(horizErr)) {
+    return false;
+  }
+
+  gnsHorizErr = horizErr;
+  gnsVertErr = stdAlt;
+  lastGnstMs = millis();
+  return true;
+}
+
+// ============================================================================
 // RECEPCIÓN GNSS
 // ============================================================================
 
@@ -1080,6 +1144,10 @@ void processGnssLine(const char* line) {
     strncmp(line, "$PUBX,00", 8) == 0
   ) {
     parsePUBX00(line);
+  } else if (
+    strncmp(line, "$GNGST,", 7) == 0
+  ) {
+    parseGNST(line);
   }
 }
 
@@ -1637,45 +1705,21 @@ void startupLedTest() {
 void updateLeds() {
   uint32_t now = millis();
 
-  // LED1 / D5.
-  if (!gnssValid) {
+  if (!gnssValid || !imuAvailable || !magCalValid) {
     digitalWrite(LED1_PIN, LOW);
-  } else if (!imuAvailable) {
-    digitalWrite(
-      LED1_PIN,
-      (now % 200) < 100 ? HIGH : LOW
-    );
-  } else if (!hasActive) {
-    digitalWrite(
-      LED1_PIN,
-      (now % 600) < 300 ? HIGH : LOW
-    );
-  } else if (
-    movementState == LOCKED &&
-    lockedValid
-  ) {
-    digitalWrite(LED1_PIN, HIGH);
-  } else {
-    digitalWrite(
-      LED1_PIN,
-      (now % 1000) < 500 ? HIGH : LOW
-    );
-  }
-
-  // LED2 / D6.
-  if (movementState == MOVING) {
+    digitalWrite(LED2_PIN, LOW);
+  } else if (movementState == MOVING) {
+    digitalWrite(LED1_PIN, (now % 600) < 300 ? HIGH : LOW);
     digitalWrite(LED2_PIN, LOW);
   } else if (movementState == AVERAGING) {
-    digitalWrite(
-      LED2_PIN,
-      (now % 400) < 200 ? HIGH : LOW
-    );
-  } else if (
-    movementState == LOCKED &&
-    lockedValid
-  ) {
+    int blink = (now % 300) < 150 ? HIGH : LOW;
+    digitalWrite(LED1_PIN, blink);
+    digitalWrite(LED2_PIN, blink);
+  } else if (movementState == LOCKED && lockedValid) {
+    digitalWrite(LED1_PIN, LOW);
     digitalWrite(LED2_PIN, HIGH);
   } else {
+    digitalWrite(LED1_PIN, LOW);
     digitalWrite(LED2_PIN, LOW);
   }
 }
@@ -1839,7 +1883,8 @@ void updateMovementState() {
       if (
         now - averagingStartMs >=
         AVERAGING_WINDOW_MS_VAR &&
-        sampleCount > 0
+        sampleCount > 0 &&
+        (inputFixQuality >= 4 || hasActive)
       ) {
         double averageRawLat =
           trimmedMean(
@@ -2509,14 +2554,8 @@ void sendBLEHelp() {
     "com2\r\n"
     "  Estado y contadores COM2.\r\n"
     "\r\n"
-    "magcal start\r\n"
-    "  Inicia calibracion.\r\n"
-    "\r\n"
-    "magcal stop\r\n"
-    "  Finaliza y guarda.\r\n"
-    "\r\n"
-    "magcal reset\r\n"
-    "  Borra calibracion.\r\n"
+    "magcal status\r\n"
+    "  Consulta calibracion de fabrica.\r\n"
     "\r\n"
     "yawoff <grados>\r\n"
     "  Ajuste montaje -180..180.\r\n"
@@ -2600,68 +2639,18 @@ void processBLECommand(const char* commandInput) {
     return;
   }
 
-  if (strcmp(start, "magcal start") == 0) {
-    if (!imuAvailable) {
-      sendBLEText(
-        "ERROR: IMU no disponible\r\n"
-      );
-
-      return;
-    }
-
-    startMagCalibration();
-
-    sendBLEText(
-      "OK: calibracion iniciada.\r\n"
-      "Gira lentamente el equipo en todos los ejes.\r\n"
-      "Despues envia: magcal stop\r\n"
+  if (strcmp(start, "magcal status") == 0) {
+    char response[120];
+    snprintf(
+      response,
+      sizeof(response),
+      "MAGCAL=%s Offset: %.2f, %.2f, %.2f\r\n",
+      magCalValid ? "YES" : "NO",
+      magCal.offsetX,
+      magCal.offsetY,
+      magCal.offsetZ
     );
-
-    return;
-  }
-
-  if (strcmp(start, "magcal stop") == 0) {
-    if (!magCalRunning) {
-      sendBLEText(
-        "ERROR: calibracion no iniciada\r\n"
-      );
-
-      return;
-    }
-
-    if (stopMagCalibration()) {
-      char response[240];
-
-      snprintf(
-        response,
-        sizeof(response),
-        "OK: calibracion guardada\r\n"
-        "Muestras: %lu\r\n"
-        "Offset: %.2f, %.2f, %.2f\r\n",
-        (unsigned long)magCalSamples,
-        magCal.offsetX,
-        magCal.offsetY,
-        magCal.offsetZ
-      );
-
-      sendBLEText(response);
-    } else {
-      sendBLEText(
-        "ERROR: calibracion insuficiente.\r\n"
-        "Repite girando el equipo completamente.\r\n"
-      );
-    }
-
-    return;
-  }
-
-  if (strcmp(start, "magcal reset") == 0) {
-    resetMagCalibration();
-
-    sendBLEText(
-      "OK: calibracion borrada\r\n"
-    );
-
+    sendBLEText(response);
     return;
   }
 
@@ -2686,7 +2675,9 @@ void processBLECommand(const char* commandInput) {
     }
 
     YAW_MOUNT_OFFSET_DEG_VAR = value;
-    saveMagCalibration();
+    if (magCalValid) {
+      saveMagCalibration();
+    }
 
     imuFilterSeeded = false;
     fusedHeading = NAN;
@@ -2851,7 +2842,7 @@ void maintainBLE() {
 
       sendBLEText(
         "\r\n"
-        "FWD-GPS Rev.2.4 BLE\r\n"
+        "FWD-GPS Rev.2.7 BLE\r\n"
         "Diagnostico conectado\r\n"
         "Escribe: help\r\n"
       );
@@ -2902,6 +2893,8 @@ void sendBLEPeriodicDiagnostic() {
   lastBleDiagnosticMs = now;
 
   char yawText[20];
+  char horizErrText[20] = "N/A";
+  char vertErrText[20] = "N/A";
 
   if (isnan(currentYaw)) {
     strcpy(yawText, "N/A");
@@ -2914,6 +2907,16 @@ void sendBLEPeriodicDiagnostic() {
     );
   }
 
+  if (
+    gnssValid &&
+    now - lastGnstMs <= GGA_FRESHNESS_MS &&
+    isfinite(gnsHorizErr) &&
+    isfinite(gnsVertErr)
+  ) {
+    snprintf(horizErrText, sizeof(horizErrText), "%.3f", gnsHorizErr);
+    snprintf(vertErrText, sizeof(vertErrText), "%.3f", gnsVertErr);
+  }
+
   char text[520];
 
   snprintf(
@@ -2921,7 +2924,8 @@ void sendBLEPeriodicDiagnostic() {
     sizeof(text),
     "\r\n"
     "[DIAG]\r\n"
-    "GNSS=%s FIX_IN=%d HAS=%s SOL=%s SAT=%d\r\n"
+    "GNSS=%s FIX_IN=%d HAS=%s SOL=%s SAT=%d HDOP=%s\r\n"
+    "H_ERR=%sm V_ERR=%sm\r\n"
     "STATE=%s LOCK=%s SPD=%.3f m/s\r\n"
     "IMU=%s YAW=%s MAGCAL=%s\r\n"
     "RAW=%.8f,%.8f\r\n"
@@ -2932,6 +2936,9 @@ void sendBLEPeriodicDiagnostic() {
     hasActive ? "ON" : "OFF",
     solutionTypeText(),
     satelliteCount,
+    hdopText,
+    horizErrText,
+    vertErrText,
     movementStateText(),
     lockedValid ? "YES" : "NO",
     currentSpeedMS,
@@ -3066,7 +3073,7 @@ void setup() {
     "=========================================="
   );
   Serial.println(
-    "RS232-FMW-GPS Rev.2.4 BLE"
+    "RS232-FMW-GPS Rev.2.7 BLE"
   );
   Serial.println(
     "Arduino UNO R4 WiFi"
