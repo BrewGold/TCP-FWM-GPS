@@ -16,6 +16,15 @@ La versión actual incluye:
 - Ethernet W5500 a 192.168.1.122:15919
 - WiFi AP para diagnóstico / control por TCP
 
+### Rev.2.6 BLE (`RS232-FWS-GPS_V2-6`)
+
+Basada en `RS232-FWS-GPS_V2-5`, con estos cambios:
+
+- El HDOP del último GGA se guarda en `inputHdop`.
+- `FIX_IN=5` (PPP Float / RTK Float, E6-HAS en UM980) se interpreta como `HAS=ON` y `SOL=HAS`; `FIX_IN<5` → `HAS=OFF`.
+- Lectura de `$GPGST` / `$GNGST`: error horizontal `H_ERR = sqrt(σlat² + σlon²)` en metros (`N/A` si no llega GST).
+- Diagnóstico BLE: `GNSS=OK FIX_IN=5 HAS=ON SOL=HAS SAT=34 HDOP=0.7 H_ERR=0.05`
+
 ---
 
 ## 1) Hardware
