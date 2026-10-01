@@ -90,6 +90,8 @@
 #define STOP_CONFIRMATION_MS        2000
 #define SPEED_FRESHNESS_MS          2000
 #define GGA_FRESHNESS_MS            2000
+#define GST_FRESHNESS_MS            5000
+#define PUBX_FRESHNESS_MS           2000
 #define IMU_RETRY_MS                5000
 #define IMU_TIMEOUT_MS              5000
 
@@ -920,7 +922,18 @@ bool parseGGA(const char* line) {
   /*
     Detectar HAS: en el UM980 con E6-HAS habilitado,
     FIX_IN=5 indica PPP Float / RTK Float.
+
+    Si llega PUBX,00 reciente, tiene prioridad su navStat.
   */
+  bool pubxFresh =
+    lastPubxMs != 0 &&
+    (millis() - lastPubxMs) <=
+    PUBX_FRESHNESS_MS;
+
+  if (pubxFresh) {
+    return true;
+  }
+
   hasActive = (fixQuality == 5);
 
   switch (fixQuality) {
@@ -1015,7 +1028,7 @@ bool horizErrFresh() {
     lastGstMs != 0 &&
     !isnan(inputHorizErr) &&
     (millis() - lastGstMs) <=
-    GGA_FRESHNESS_MS;
+    GST_FRESHNESS_MS;
 }
 
 void formatHorizErr(char* text, size_t textSize) {
@@ -1196,7 +1209,8 @@ void processGnssLine(const char* line) {
     parsePUBX00(line);
   } else if (
     strncmp(line, "$GPGST", 6) == 0 ||
-    strncmp(line, "$GNGST", 6) == 0
+    strncmp(line, "$GNGST", 6) == 0 ||
+    strncmp(line, "$GCGST", 6) == 0
   ) {
     parseGST(line);
   }
