@@ -2510,24 +2510,7 @@ void sendBLECOM2() {
 
   uint32_t now = millis();
 
-  char hErrText[16] = "N/A";
-  char vErrText[16] = "N/A";
-
-  if (
-    isfinite(gnsHorizErr) &&
-    (now - lastGnstMs) < 5000
-  ) {
-    snprintf(hErrText, sizeof(hErrText), "%.3f", gnsHorizErr);
-  }
-
-  if (
-    isfinite(gnsVertErr) &&
-    (now - lastGnstMs) < 5000
-  ) {
-    snprintf(vErrText, sizeof(vErrText), "%.3f", gnsVertErr);
-  }
-
-  char text[640];
+  char text[520];
 
   snprintf(
     text,
@@ -2993,7 +2976,24 @@ void sendBLEPeriodicDiagnostic() {
     );
   }
 
-  char text[520];
+  char hErrText[16] = "N/A";
+  char vErrText[16] = "N/A";
+
+  if (
+    isfinite(gnsHorizErr) &&
+    (now - lastGnstMs) < 5000
+  ) {
+    snprintf(hErrText, sizeof(hErrText), "%.3f", gnsHorizErr);
+  }
+
+  if (
+    isfinite(gnsVertErr) &&
+    (now - lastGnstMs) < 5000
+  ) {
+    snprintf(vErrText, sizeof(vErrText), "%.3f", gnsVertErr);
+  }
+
+  char text[640];
 
   snprintf(
     text,
