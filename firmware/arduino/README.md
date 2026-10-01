@@ -2,11 +2,15 @@
 
 Este directorio contiene la implementación funcional del firmware para el Arduino UNO R4 WiFi utilizado como MCU del sistema GNSS FWD.
 
-## Versión actual
+## Versiones de firmware
 
-- `RS232-FMW-GPS_V-2_1.ino` — **Rev.2.1**
+- `RS232-FWS-GPS_V2-7` — **Rev.2.7 BLE**
+- `RS232-FMW-GPS_V-2_1.ino` — **Rev.2.1 WiFi/TCP** (documentada abajo)
 
-La versión actual incluye:
+La Rev.2.7 añade parser `$GNGST`, precisión BLE, validación FIX_IN/HAS para `LOCKED`,
+calibración magnética de fábrica de solo lectura y lógica para dos LEDs.
+
+La siguiente descripción corresponde a la Rev.2.1:
 
 - GNSS UM980 por Serial1 @ 115200 bps
 - Salida FWD por D2 @ 38400 bps (soft-serial TX-only)
