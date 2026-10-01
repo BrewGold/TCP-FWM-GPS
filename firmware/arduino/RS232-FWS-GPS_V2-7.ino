@@ -12,9 +12,6 @@
   - Ethernet W5500.
   - Diagnóstico Bluetooth Low Energy.
   - WiFi Server eliminado.
-  - Precisión GNGST visible en BLE.
-  - Validación FIX_IN para LOCKED.
-  - Magnetómetro calibrado en fábrica (EEPROM).
 
   BLE:
   - Nombre: FWD-GPS-Diag
@@ -168,7 +165,6 @@ void readGNSS();
 void updateMovementState();
 void updateLeds();
 void transmitGCGGA();
-void clearAverageBuffers();
 
 // ============================================================================
 // ETHERNET
@@ -345,7 +341,6 @@ uint32_t lastGgaMs = 0;
 uint32_t lastRmcMs = 0;
 uint32_t lastPubxMs = 0;
 
-// NUEVO: Precisión GNGST
 double gnsHorizErr = NAN;
 double gnsVertErr = NAN;
 uint32_t lastGnstMs = 0;
@@ -1019,23 +1014,40 @@ bool parsePUBX00(const char* line) {
     }
   }
 
-  if (fieldCount < 7) {
+  if (fieldCount < 27) {
     return false;
   }
 
-  double latitude = 0.0;
-  double longitude = 0.0;
+  const char* navStat = fields[26];
 
-  if (!parseLatitude(fields[3], fields[4], &latitude)) {
-    return false;
+  if (
+    strstr(navStat, "HP") != nullptr ||
+    strstr(navStat, "HAS") != nullptr
+  ) {
+    hasActive = true;
+    solutionType = SOL_HAS;
+  } else if (
+    strstr(navStat, "R3") != nullptr ||
+    strstr(navStat, "RTK") != nullptr
+  ) {
+    hasActive = false;
+    solutionType = SOL_RTK;
+  } else if (
+    strstr(navStat, "D3") != nullptr ||
+    strstr(navStat, "DGPS") != nullptr
+  ) {
+    hasActive = false;
+    solutionType = SOL_DGPS;
+  } else if (
+    strstr(navStat, "G3") != nullptr ||
+    strstr(navStat, "G2") != nullptr
+  ) {
+    hasActive = false;
+    solutionType = SOL_GPS;
+  } else {
+    hasActive = false;
+    solutionType = SOL_UNKNOWN;
   }
-
-  if (!parseLongitude(fields[5], fields[6], &longitude)) {
-    return false;
-  }
-
-  currentLat = latitude;
-  currentLon = longitude;
 
   lastPubxMs = millis();
 
@@ -1043,7 +1055,7 @@ bool parsePUBX00(const char* line) {
 }
 
 // ============================================================================
-// PARSER GNGST (NUEVO - Precisión)
+// PARSER GNGST - PRECISIÓN
 // ============================================================================
 
 bool parseGNST(const char* line) {
@@ -1051,7 +1063,15 @@ bool parseGNST(const char* line) {
     return false;
   }
 
+  if (
+    strncmp(line, "$GPGST", 6) != 0 &&
+    strncmp(line, "$GNGST", 6) != 0
+  ) {
+    return false;
+  }
+
   if (!validateNmeaChecksum(line)) {
+    Serial.println("[GNSS] Error checksum GST");
     return false;
   }
 
@@ -1059,6 +1079,12 @@ bool parseGNST(const char* line) {
 
   strncpy(copy, line, sizeof(copy) - 1);
   copy[sizeof(copy) - 1] = '\0';
+
+  char* asterisk = strchr(copy, '*');
+
+  if (asterisk != nullptr) {
+    *asterisk = '\0';
+  }
 
   char* fields[15];
   int fieldCount = 0;
@@ -1075,77 +1101,719 @@ bool parseGNST(const char* line) {
     }
   }
 
-  if (fieldCount < 8) {
+  // $GNGST,hhmmss.ss,rms,smaj,smin,orient,std_lat,std_lon,std_alt*CS
+  if (fieldCount < 9) {
     return false;
   }
 
-  // Índices: $GNGST,hhmmss.ss,RMS,std_lat,std_lon,std_alt,...
-  double stdLat = strtod(fields[3], nullptr);
-  double stdLon = strtod(fields[4], nullptr);
-  double stdAlt = strtod(fields[5], nullptr);
+  double stdLat = 0.0;
+  double stdLon = 0.0;
+  double stdAlt = 0.0;
 
-  if (isfinite(stdLat) && isfinite(stdLon) && isfinite(stdAlt)) {
-    gnsHorizErr = sqrt(stdLat * stdLat + stdLon * stdLon);
-    gnsVertErr = stdAlt;
-    lastGnstMs = millis();
-    return true;
+  if (
+    !parseDoubleField(fields[6], &stdLat) ||
+    !parseDoubleField(fields[7], &stdLon) ||
+    !parseDoubleField(fields[8], &stdAlt)
+  ) {
+    return false;
   }
 
-  return false;
+  gnsHorizErr = sqrt(stdLat * stdLat + stdLon * stdLon);
+  gnsVertErr = stdAlt;
+  lastGnstMs = millis();
+
+  return true;
 }
 
 // ============================================================================
-// readGNSS - CON PARSEO DE GNGST
+// RECEPCIÓN GNSS
 // ============================================================================
 
-void readGNSS() {
-  while (Serial1.available()) {
-    char c = Serial1.read();
+void processGnssLine(const char* line) {
+  if (
+    line == nullptr ||
+    line[0] == '\0'
+  ) {
+    return;
+  }
 
-    if (c == '\n') {
+  if (
+    strncmp(line, "$GPGGA", 6) == 0 ||
+    strncmp(line, "$GNGGA", 6) == 0 ||
+    strncmp(line, "$GCGGA", 6) == 0
+  ) {
+    parseGGA(line);
+  } else if (
+    strncmp(line, "$GPRMC", 6) == 0 ||
+    strncmp(line, "$GNRMC", 6) == 0 ||
+    strncmp(line, "$GCRMC", 6) == 0
+  ) {
+    parseRMC(line);
+  } else if (
+    strncmp(line, "$PUBX,00", 8) == 0
+  ) {
+    parsePUBX00(line);
+  } else if (
+    strncmp(line, "$GPGST", 6) == 0 ||
+    strncmp(line, "$GNGST", 6) == 0
+  ) {
+    parseGNST(line);
+  }
+}
+
+void readGNSS() {
+  while (Serial1.available() > 0) {
+    char character = (char)Serial1.read();
+
+    if (
+      character == '$' ||
+      character == '#'
+    ) {
+      gnssLineIndex = 0;
+      gnssLine[gnssLineIndex++] = character;
+      continue;
+    }
+
+    if (gnssLineIndex <= 0) {
+      continue;
+    }
+
+    if (character == '\r') {
+      continue;
+    }
+
+    if (character == '\n') {
       gnssLine[gnssLineIndex] = '\0';
 
-      if (strncmp(gnssLine, "$GNGGA", 6) == 0) {
-        parseGGA(gnssLine);
-      } else if (strncmp(gnssLine, "$GNRMC", 6) == 0) {
-        parseRMC(gnssLine);
-      } else if (strncmp(gnssLine, "$PUBX,00", 8) == 0) {
-        parsePUBX00(gnssLine);
-      } else if (strncmp(gnssLine, "$GNGST", 6) == 0) {
-        parseGNST(gnssLine);
-      }
+      processGnssLine(gnssLine);
 
       gnssLineIndex = 0;
-    } else if (c == '\r') {
-      // Ignorar
-    } else if (gnssLineIndex < sizeof(gnssLine) - 1) {
-      gnssLine[gnssLineIndex++] = c;
+      continue;
+    }
+
+    if (
+      gnssLineIndex <
+      (int)sizeof(gnssLine) - 1
+    ) {
+      gnssLine[gnssLineIndex++] = character;
+    } else {
+      Serial.println("[GNSS] Línea demasiado larga");
+      gnssLineIndex = 0;
     }
   }
 }
 
 // ============================================================================
-// clearAverageBuffers
+// EEPROM - CALIBRACIÓN MAGNETÓMETRO
+// ============================================================================
+
+void loadMagCalibration() {
+  MagCalibration stored;
+
+  EEPROM.get(EEPROM_MAGCAL_ADDR, stored);
+
+  if (
+    stored.magic == EEPROM_MAGIC &&
+    isfinite(stored.offsetX) &&
+    isfinite(stored.offsetY) &&
+    isfinite(stored.offsetZ) &&
+    isfinite(stored.yawMountOffset)
+  ) {
+    magCal = stored;
+    magCalValid = true;
+
+    YAW_MOUNT_OFFSET_DEG_VAR =
+      magCal.yawMountOffset;
+
+    debugPrintf(
+      "[IMU] Calibración cargada: "
+      "off=(%.2f, %.2f, %.2f) yawoff=%.1f\n",
+      magCal.offsetX,
+      magCal.offsetY,
+      magCal.offsetZ,
+      magCal.yawMountOffset
+    );
+  } else {
+    magCal.magic = EEPROM_MAGIC;
+    magCal.offsetX = 0.0f;
+    magCal.offsetY = 0.0f;
+    magCal.offsetZ = 0.0f;
+    magCal.yawMountOffset = 0.0f;
+
+    magCalValid = false;
+
+    Serial.println(
+      "[IMU] Sin calibración en EEPROM"
+    );
+  }
+}
+
+void saveMagCalibration() {
+  magCal.magic = EEPROM_MAGIC;
+
+  magCal.yawMountOffset =
+    (float)YAW_MOUNT_OFFSET_DEG_VAR;
+
+  EEPROM.put(
+    EEPROM_MAGCAL_ADDR,
+    magCal
+  );
+
+  Serial.println(
+    "[IMU] Calibración guardada en EEPROM"
+  );
+}
+
+void startMagCalibration() {
+  magCalRunning = true;
+  magCalSamples = 0;
+
+  magMinX = 1e9;
+  magMinY = 1e9;
+  magMinZ = 1e9;
+
+  magMaxX = -1e9;
+  magMaxY = -1e9;
+  magMaxZ = -1e9;
+
+  Serial.println("[IMU] Calibración iniciada");
+}
+
+bool stopMagCalibration() {
+  magCalRunning = false;
+
+  if (magCalSamples < 200) {
+    return false;
+  }
+
+  double spanX = magMaxX - magMinX;
+  double spanY = magMaxY - magMinY;
+
+  if (
+    spanX < 10.0 ||
+    spanY < 10.0
+  ) {
+    return false;
+  }
+
+  magCal.offsetX =
+    (float)((magMaxX + magMinX) / 2.0);
+
+  magCal.offsetY =
+    (float)((magMaxY + magMinY) / 2.0);
+
+  magCal.offsetZ =
+    (float)((magMaxZ + magMinZ) / 2.0);
+
+  magCalValid = true;
+  imuFilterSeeded = false;
+
+  saveMagCalibration();
+
+  return true;
+}
+
+void resetMagCalibration() {
+  magCalRunning = false;
+
+  magCal.offsetX = 0.0f;
+  magCal.offsetY = 0.0f;
+  magCal.offsetZ = 0.0f;
+
+  magCalValid = false;
+  imuFilterSeeded = false;
+
+  saveMagCalibration();
+}
+
+// ============================================================================
+// ICM-20948
+// ============================================================================
+
+bool probeI2C(uint8_t address) {
+  Wire.beginTransmission(address);
+
+  return Wire.endTransmission() == 0;
+}
+
+bool initializeICM20948() {
+  uint8_t address = 0;
+
+  if (probeI2C(ICM_ADDRESS_PRIMARY)) {
+    address = ICM_ADDRESS_PRIMARY;
+  } else if (probeI2C(ICM_ADDRESS_SECONDARY)) {
+    address = ICM_ADDRESS_SECONDARY;
+  } else {
+    Serial.println(
+      "[IMU] ICM-20948 no responde "
+      "en 0x69 ni 0x68"
+    );
+
+    imuAvailable = false;
+    return false;
+  }
+
+  icm.begin(
+    Wire,
+    address == ICM_ADDRESS_PRIMARY ? 1 : 0
+  );
+
+  if (icm.status != ICM_20948_Stat_Ok) {
+    debugPrintf(
+      "[IMU] Error inicializando: %s\n",
+      icm.statusString()
+    );
+
+    imuAvailable = false;
+    return false;
+  }
+
+  imuAddress = address;
+  imuAvailable = true;
+  imuFilterSeeded = false;
+  fusedHeading = NAN;
+  currentYaw = NAN;
+
+  lastImuDataMs = millis();
+  lastImuMicros = micros();
+
+  debugPrintf(
+    "[IMU] ICM-20948 inicializado en 0x%02X\n",
+    imuAddress
+  );
+
+  return true;
+}
+
+double computeTiltCompensatedHeading() {
+  double ax = accFX;
+  double ay = accFY;
+  double az = accFZ;
+
+  double norm = sqrt(
+    ax * ax +
+    ay * ay +
+    az * az
+  );
+
+  if (norm < 100.0) {
+    return NAN;
+  }
+
+  imuRoll = atan2(ay, az);
+
+  imuPitch = atan2(
+    -ax,
+    sqrt(ay * ay + az * az)
+  );
+
+  double mx = magFX;
+  double my = magFY;
+  double mz = magFZ;
+
+  double sinRoll = sin(imuRoll);
+  double cosRoll = cos(imuRoll);
+  double sinPitch = sin(imuPitch);
+  double cosPitch = cos(imuPitch);
+
+  double xh =
+    mx * cosPitch +
+    my * sinRoll * sinPitch +
+    mz * cosRoll * sinPitch;
+
+  double yh =
+    my * cosRoll -
+    mz * sinRoll;
+
+  if (
+    fabs(xh) < 1e-6 &&
+    fabs(yh) < 1e-6
+  ) {
+    return NAN;
+  }
+
+  double heading =
+    radiansToDegrees(atan2(-yh, xh));
+
+  return normalizeAngle(heading);
+}
+
+double readYaw() {
+  uint32_t now = millis();
+
+  if (!imuAvailable) {
+    if (
+      now - lastImuRetryMs >=
+      IMU_RETRY_MS
+    ) {
+      lastImuRetryMs = now;
+
+      Serial.println(
+        "[IMU] Reintentando ICM-20948"
+      );
+
+      initializeICM20948();
+    }
+
+    return NAN;
+  }
+
+  if (icm.dataReady()) {
+    icm.getAGMT();
+
+    if (
+      icm.status !=
+      ICM_20948_Stat_Ok
+    ) {
+      debugPrintf(
+        "[IMU] Error de lectura: %s\n",
+        icm.statusString()
+      );
+
+      imuAvailable = false;
+      currentYaw = NAN;
+
+      return NAN;
+    }
+
+    double rawAx = icm.accX();
+    double rawAy = icm.accY();
+    double rawAz = icm.accZ();
+
+    double rawMx = icm.magX();
+    double rawMy = -icm.magY();
+    double rawMz = -icm.magZ();
+
+    double rawGz = icm.gyrZ();
+
+    imuTempC = icm.temp();
+
+    if (magCalRunning) {
+      if (rawMx < magMinX) magMinX = rawMx;
+      if (rawMx > magMaxX) magMaxX = rawMx;
+
+      if (rawMy < magMinY) magMinY = rawMy;
+      if (rawMy > magMaxY) magMaxY = rawMy;
+
+      if (rawMz < magMinZ) magMinZ = rawMz;
+      if (rawMz > magMaxZ) magMaxZ = rawMz;
+
+      magCalSamples++;
+    }
+
+    rawMx -= magCal.offsetX;
+    rawMy -= magCal.offsetY;
+    rawMz -= magCal.offsetZ;
+
+    if (!imuFilterSeeded) {
+      accFX = rawAx;
+      accFY = rawAy;
+      accFZ = rawAz;
+
+      magFX = rawMx;
+      magFY = rawMy;
+      magFZ = rawMz;
+    } else {
+      accFX +=
+        ACC_FILTER_ALPHA * (rawAx - accFX);
+
+      accFY +=
+        ACC_FILTER_ALPHA * (rawAy - accFY);
+
+      accFZ +=
+        ACC_FILTER_ALPHA * (rawAz - accFZ);
+
+      magFX +=
+        MAG_FILTER_ALPHA * (rawMx - magFX);
+
+      magFY +=
+        MAG_FILTER_ALPHA * (rawMy - magFY);
+
+      magFZ +=
+        MAG_FILTER_ALPHA * (rawMz - magFZ);
+    }
+
+    gyroZdps = rawGz;
+
+    uint32_t nowUs = micros();
+
+    double dt =
+      (double)(nowUs - lastImuMicros) /
+      1000000.0;
+
+    lastImuMicros = nowUs;
+
+    magHeading =
+      computeTiltCompensatedHeading();
+
+    if (!isnan(magHeading)) {
+      if (
+        !imuFilterSeeded ||
+        isnan(fusedHeading) ||
+        dt <= 0.0 ||
+        dt > GYRO_MAX_DT_S
+      ) {
+        fusedHeading = magHeading;
+        imuFilterSeeded = true;
+      } else {
+        double predicted =
+          normalizeAngle(
+            fusedHeading - gyroZdps * dt
+          );
+
+        double error =
+          wrap180(magHeading - predicted);
+
+        fusedHeading =
+          normalizeAngle(
+            predicted +
+            (1.0 - YAW_GYRO_WEIGHT) *
+            error
+          );
+      }
+
+      double magneticYaw =
+        normalizeAngle(
+          fusedHeading +
+          YAW_MOUNT_OFFSET_DEG_VAR
+        );
+
+      currentYaw =
+        normalizeAngle(
+          magneticYaw -
+          DECLINATION_DEG_VAR
+        );
+
+      lastImuDataMs = now;
+    }
+
+    return currentYaw;
+  }
+
+  if (
+    now - lastImuDataMs >=
+    IMU_TIMEOUT_MS
+  ) {
+    if (
+      now - lastImuMessageMs >=
+      IMU_RETRY_MS
+    ) {
+      lastImuMessageMs = now;
+
+      Serial.println(
+        "[IMU] Timeout ICM-20948"
+      );
+    }
+
+    currentYaw = NAN;
+    imuAvailable = false;
+    imuFilterSeeded = false;
+  }
+
+  return currentYaw;
+}
+
+// ============================================================================
+// OFFSET ANTENA-PISTÓN
+// ============================================================================
+
+void applyAntennaOffset(
+  double rawLat,
+  double rawLon,
+  double yaw,
+  double* correctedLat,
+  double* correctedLon
+) {
+  *correctedLat = rawLat;
+  *correctedLon = rawLon;
+
+  if (isnan(yaw)) {
+    return;
+  }
+
+  double bearing =
+    normalizeAngle(yaw + 270.0);
+
+  double bearingRadians =
+    degreesToRadians(bearing);
+
+  double offsetRadians =
+    OFFSET_M_VAR / EARTH_RADIUS_M;
+
+  double latitudeOffset =
+    offsetRadians *
+    cos(bearingRadians);
+
+  double latitudeCosine =
+    cos(degreesToRadians(rawLat));
+
+  if (fabs(latitudeCosine) < 0.000001) {
+    return;
+  }
+
+  double longitudeOffset =
+    offsetRadians *
+    sin(bearingRadians) /
+    latitudeCosine;
+
+  *correctedLat =
+    rawLat +
+    radiansToDegrees(latitudeOffset);
+
+  *correctedLon =
+    rawLon +
+    radiansToDegrees(longitudeOffset);
+}
+
+// ============================================================================
+// PRUEBA DE ARRANQUE DE LEDS
+// ============================================================================
+
+void startupLedTest() {
+  uint32_t startMs = millis();
+
+  Serial.println(
+    "[LED] Prueba de arranque 5 segundos"
+  );
+
+  while (
+    millis() - startMs <
+    STARTUP_LED_TEST_MS
+  ) {
+    uint32_t elapsedMs =
+      millis() - startMs;
+
+    bool state =
+      (elapsedMs % STARTUP_LED_PERIOD_MS) <
+      (STARTUP_LED_PERIOD_MS / 2);
+
+    digitalWrite(
+      LED1_PIN,
+      state ? HIGH : LOW
+    );
+
+    digitalWrite(
+      LED2_PIN,
+      state ? HIGH : LOW
+    );
+
+    delay(10);
+  }
+
+  digitalWrite(LED1_PIN, LOW);
+  digitalWrite(LED2_PIN, LOW);
+
+  Serial.println(
+    "[LED] Fin prueba de arranque"
+  );
+}
+
+// ============================================================================
+// ESTADO NORMAL DE LEDS
+// ============================================================================
+
+void updateLeds() {
+  uint32_t now = millis();
+
+  /*
+    FALLA     : LED1 OFF,           LED2 OFF
+    MOVING    : LED1 parpadeo lento, LED2 OFF
+    AVERAGING : LED1 parpadeo rápido, LED2 parpadeo rápido
+    LOCKED    : LED1 OFF,           LED2 ON
+  */
+  bool fault =
+    !gnssValid ||
+    !imuAvailable ||
+    !magCalValid;
+
+  bool slowBlink = (now % 600) < 300;
+  bool fastBlink = (now % 300) < 150;
+
+  bool led1 = false;
+  bool led2 = false;
+
+  if (fault) {
+    led1 = false;
+    led2 = false;
+  } else if (movementState == MOVING) {
+    led1 = slowBlink;
+  } else if (movementState == AVERAGING) {
+    led1 = fastBlink;
+    led2 = fastBlink;
+  } else if (
+    movementState == LOCKED &&
+    lockedValid
+  ) {
+    led2 = true;
+  }
+
+  digitalWrite(LED1_PIN, led1 ? HIGH : LOW);
+  digitalWrite(LED2_PIN, led2 ? HIGH : LOW);
+}
+
+// ============================================================================
+// MÁQUINA DE ESTADOS
 // ============================================================================
 
 void clearAverageBuffers() {
   sampleCount = 0;
   yawSampleCount = 0;
-  memset(latitudeSamples, 0, sizeof(latitudeSamples));
-  memset(longitudeSamples, 0, sizeof(longitudeSamples));
-  memset(altitudeSamples, 0, sizeof(altitudeSamples));
-  memset(yawSamples, 0, sizeof(yawSamples));
+  lastSampledGgaMs = 0;
+
+  memset(
+    latitudeSamples,
+    0,
+    sizeof(latitudeSamples)
+  );
+
+  memset(
+    longitudeSamples,
+    0,
+    sizeof(longitudeSamples)
+  );
+
+  memset(
+    altitudeSamples,
+    0,
+    sizeof(altitudeSamples)
+  );
+
+  memset(
+    yawSamples,
+    0,
+    sizeof(yawSamples)
+  );
 }
 
-// ============================================================================
-// updateMovementState - CON VALIDACIÓN FIX_IN
-// ============================================================================
+int getOutputFixQuality() {
+  if (!gnssValid) {
+    return 0;
+  }
+
+  if (
+    movementState == LOCKED &&
+    lockedValid
+  ) {
+    return 4;
+  }
+
+  if (hasActive) {
+    return 2;
+  }
+
+  return 1;
+}
 
 void updateMovementState() {
   uint32_t now = millis();
 
-  bool speedFresh = (now - lastRmcMs) <= SPEED_FRESHNESS_MS;
-  bool ggaFresh = (now - lastGgaMs) <= GGA_FRESHNESS_MS;
+  bool speedFresh =
+    (now - lastRmcMs) <=
+    SPEED_FRESHNESS_MS;
+
+  bool ggaFresh =
+    (now - lastGgaMs) <=
+    GGA_FRESHNESS_MS;
 
   if (!speedFresh) {
     currentSpeedMS = 0.0;
@@ -1158,82 +1826,215 @@ void updateMovementState() {
 
   switch (movementState) {
     case MOVING: {
-      if (speedFresh && currentSpeedMS < SPEED_ENTER_STOP_MS_VAR) {
+      if (
+        speedFresh &&
+        currentSpeedMS <
+        SPEED_ENTER_STOP_MS_VAR
+      ) {
         if (lastStopCheckMs == 0) {
           lastStopCheckMs = now;
         }
-      } else if (speedFresh && currentSpeedMS >= SPEED_EXIT_STOP_MS_VAR) {
+      } else if (
+        speedFresh &&
+        currentSpeedMS >=
+        SPEED_EXIT_STOP_MS_VAR
+      ) {
         lastStopCheckMs = 0;
       }
 
-      if (lastStopCheckMs > 0 && now - lastStopCheckMs >= STOP_CONFIRMATION_MS) {
+      if (
+        lastStopCheckMs > 0 &&
+        now - lastStopCheckMs >=
+        STOP_CONFIRMATION_MS
+      ) {
         movementState = AVERAGING;
         averagingStartMs = now;
         lockedValid = false;
+
         clearAverageBuffers();
-        Serial.println("[STATE] MOVING -> AVERAGING");
+
+        Serial.println(
+          "[STATE] MOVING -> AVERAGING"
+        );
       }
 
       break;
     }
 
     case AVERAGING: {
-      if (gnssValid && lastGgaMs != lastSampledGgaMs && sampleCount < MAX_SAMPLES) {
-        latitudeSamples[sampleCount] = currentLat;
-        longitudeSamples[sampleCount] = currentLon;
-        altitudeSamples[sampleCount] = currentAlt;
+      if (
+        gnssValid &&
+        lastGgaMs != lastSampledGgaMs &&
+        sampleCount < MAX_SAMPLES
+      ) {
+        latitudeSamples[sampleCount] =
+          currentLat;
+
+        longitudeSamples[sampleCount] =
+          currentLon;
+
+        altitudeSamples[sampleCount] =
+          currentAlt;
+
         sampleCount++;
         lastSampledGgaMs = lastGgaMs;
-      }
 
-      if (imuAvailable && !isnan(currentYaw)) {
-        if (yawSampleCount < MAX_SAMPLES) {
-          yawSamples[yawSampleCount] = currentYaw;
-          yawSampleCount++;
+        if (
+          imuAvailable &&
+          !isnan(currentYaw) &&
+          yawSampleCount < MAX_SAMPLES
+        ) {
+          yawSamples[yawSampleCount++] =
+            currentYaw;
         }
       }
 
-      uint32_t elapsedMs = now - averagingStartMs;
+      if (
+        speedFresh &&
+        currentSpeedMS >
+        SPEED_EXIT_STOP_MS_VAR
+      ) {
+        movementState = MOVING;
+        lockedValid = false;
+        lastStopCheckMs = 0;
 
-      // VALIDACIÓN FIX_IN PARA LOCKED
-      if (sampleCount > 0 && elapsedMs >= AVERAGING_WINDOW_MS_VAR && (inputFixQuality >= 4 || hasActive)) {
-        double avgLat = trimmedMean(latitudeSamples, sampleCount);
-        double avgLon = trimmedMean(longitudeSamples, sampleCount);
-        double avgAlt = trimmedMean(altitudeSamples, sampleCount);
+        clearAverageBuffers();
 
-        if (isfinite(avgLat) && isfinite(avgLon) && isfinite(avgAlt)) {
-          rawLockedLat = avgLat;
-          rawLockedLon = avgLon;
-          lockedLat = avgLat;
-          lockedLon = avgLon;
-          lockedAlt = avgAlt;
+        Serial.println(
+          "[STATE] AVERAGING -> MOVING"
+        );
 
-          if (yawSampleCount > 0) {
-            lockedYaw = circularMeanDegrees(yawSamples, yawSampleCount);
-          } else {
-            lockedYaw = NAN;
-          }
+        break;
+      }
 
-          lockedValid = true;
-          movementState = LOCKED;
-          Serial.println("[STATE] AVERAGING -> LOCKED");
+      if (
+        now - averagingStartMs >=
+        AVERAGING_WINDOW_MS_VAR &&
+        sampleCount > 0 &&
+        inputFixQuality >= 4
+      ) {
+        double averageRawLat =
+          trimmedMean(
+            latitudeSamples,
+            sampleCount
+          );
+
+        double averageRawLon =
+          trimmedMean(
+            longitudeSamples,
+            sampleCount
+          );
+
+        double averageAlt =
+          trimmedMean(
+            altitudeSamples,
+            sampleCount
+          );
+
+        double averageYaw = NAN;
+
+        if (yawSampleCount > 0) {
+          averageYaw =
+            circularMeanDegrees(
+              yawSamples,
+              yawSampleCount
+            );
         }
+
+        if (
+          isnan(averageRawLat) ||
+          isnan(averageRawLon) ||
+          isnan(averageAlt)
+        ) {
+          movementState = MOVING;
+          lockedValid = false;
+
+          clearAverageBuffers();
+
+          Serial.println(
+            "[STATE] Error en promedio"
+          );
+
+          break;
+        }
+
+        rawLockedLat = averageRawLat;
+        rawLockedLon = averageRawLon;
+
+        lockedAlt = averageAlt;
+        lockedYaw = averageYaw;
+
+        applyAntennaOffset(
+          rawLockedLat,
+          rawLockedLon,
+          lockedYaw,
+          &lockedLat,
+          &lockedLon
+        );
+
+        lockedValid = true;
+        movementState = LOCKED;
+        lastStopCheckMs = 0;
+
+        debugPrintf(
+          "[STATE] AVERAGING -> LOCKED "
+          "raw=%.8f,%.8f "
+          "out=%.8f,%.8f "
+          "yaw=%.1f\n",
+          rawLockedLat,
+          rawLockedLon,
+          lockedLat,
+          lockedLon,
+          lockedYaw
+        );
+
+        sendBLEStatus();
       }
 
       break;
     }
 
     case LOCKED: {
-      double distance = haversineMeters(rawLockedLat, rawLockedLon, currentLat, currentLon);
+      if (
+        speedFresh &&
+        currentSpeedMS >
+        SPEED_EXIT_STOP_MS_VAR
+      ) {
+        movementState = MOVING;
+        lockedValid = false;
+        lastStopCheckMs = 0;
 
-      if (speedFresh && currentSpeedMS >= SPEED_EXIT_STOP_MS_VAR) {
-        movementState = MOVING;
-        lockedValid = false;
-        Serial.println("[STATE] LOCKED -> MOVING");
-      } else if (distance > RELOCK_DISTANCE_M) {
-        movementState = MOVING;
-        lockedValid = false;
-        Serial.println("[STATE] LOCKED -> MOVING (distance)");
+        clearAverageBuffers();
+
+        Serial.println(
+          "[STATE] LOCKED -> MOVING velocidad"
+        );
+
+        break;
+      }
+
+      if (gnssValid) {
+        double distance =
+          haversineMeters(
+            currentLat,
+            currentLon,
+            rawLockedLat,
+            rawLockedLon
+          );
+
+        if (distance > RELOCK_DISTANCE_M) {
+          movementState = MOVING;
+          lockedValid = false;
+          lastStopCheckMs = 0;
+
+          clearAverageBuffers();
+
+          debugPrintf(
+            "[STATE] LOCKED -> MOVING "
+            "distancia=%.2f m\n",
+            distance
+          );
+        }
       }
 
       break;
@@ -1242,206 +2043,931 @@ void updateMovementState() {
 }
 
 // ============================================================================
-// updateLeds - 2 LEDs CON 3 ESTADOS + FALLA
+// FORMATO NMEA
 // ============================================================================
 
-void updateLeds() {
-  uint32_t now = millis();
-  static uint32_t ledBlinkMs = 0;
-  static bool ledBlinkState = false;
+void formatLatitude(
+  double latitude,
+  char* output,
+  size_t outputSize,
+  char* hemisphere
+) {
+  double absoluteValue = fabs(latitude);
+  int degrees = (int)absoluteValue;
 
-  uint32_t blinkPeriodMs = 300;
-  if (movementState == AVERAGING) {
-    blinkPeriodMs = 150;
+  double minutes =
+    (absoluteValue - degrees) * 60.0;
+
+  *hemisphere =
+    latitude >= 0.0 ? 'N' : 'S';
+
+  snprintf(
+    output,
+    outputSize,
+    "%02d%07.4f",
+    degrees,
+    minutes
+  );
+}
+
+void formatLongitude(
+  double longitude,
+  char* output,
+  size_t outputSize,
+  char* hemisphere
+) {
+  double absoluteValue = fabs(longitude);
+  int degrees = (int)absoluteValue;
+
+  double minutes =
+    (absoluteValue - degrees) * 60.0;
+
+  *hemisphere =
+    longitude >= 0.0 ? 'E' : 'W';
+
+  snprintf(
+    output,
+    outputSize,
+    "%03d%07.4f",
+    degrees,
+    minutes
+  );
+}
+
+void createGCGGA(
+  char* output,
+  size_t outputSize,
+  double latitude,
+  double longitude,
+  double altitude,
+  int fixQuality
+) {
+  char latitudeText[24];
+  char longitudeText[24];
+  char altitudeText[24];
+
+  char latitudeHemisphere;
+  char longitudeHemisphere;
+
+  formatLatitude(
+    latitude,
+    latitudeText,
+    sizeof(latitudeText),
+    &latitudeHemisphere
+  );
+
+  formatLongitude(
+    longitude,
+    longitudeText,
+    sizeof(longitudeText),
+    &longitudeHemisphere
+  );
+
+  snprintf(
+    altitudeText,
+    sizeof(altitudeText),
+    "%.1f",
+    altitude
+  );
+
+  snprintf(
+    output,
+    outputSize,
+    "$GCGGA,%s,%s,%c,%s,%c,"
+    "%d,%02d,%s,%s,M,0.0,M,,",
+    utcTime,
+    latitudeText,
+    latitudeHemisphere,
+    longitudeText,
+    longitudeHemisphere,
+    fixQuality,
+    satelliteCount,
+    hdopText,
+    altitudeText
+  );
+}
+
+void addNmeaChecksumAndCrlf(
+  char* sentence,
+  size_t sentenceSize
+) {
+  if (sentence == nullptr) {
+    return;
   }
 
-  if (now - ledBlinkMs >= blinkPeriodMs) {
-    ledBlinkMs = now;
-    ledBlinkState = !ledBlinkState;
+  uint8_t checksum =
+    calculateNmeaChecksum(sentence);
+
+  size_t length = strlen(sentence);
+
+  if (length + 5 >= sentenceSize) {
+    return;
   }
 
-  bool hasFault = !gnssValid || !imuAvailable || !magCalValid;
-
-  // LED1 (Rojo)
-  if (hasFault) {
-    digitalWrite(LED1_PIN, LOW);
-  } else if (movementState == MOVING) {
-    digitalWrite(LED1_PIN, ledBlinkState ? HIGH : LOW);
-  } else if (movementState == AVERAGING) {
-    digitalWrite(LED1_PIN, ledBlinkState ? HIGH : LOW);
-  } else if (movementState == LOCKED && (inputFixQuality >= 4 || hasActive)) {
-    digitalWrite(LED1_PIN, LOW);
-  } else {
-    digitalWrite(LED1_PIN, LOW);
-  }
-
-  // LED2 (Verde)
-  if (hasFault) {
-    digitalWrite(LED2_PIN, LOW);
-  } else if (movementState == MOVING) {
-    digitalWrite(LED2_PIN, LOW);
-  } else if (movementState == AVERAGING) {
-    digitalWrite(LED2_PIN, ledBlinkState ? HIGH : LOW);
-  } else if (movementState == LOCKED && (inputFixQuality >= 4 || hasActive)) {
-    digitalWrite(LED2_PIN, HIGH);
-  } else {
-    digitalWrite(LED2_PIN, LOW);
-  }
+  snprintf(
+    sentence + length,
+    sentenceSize - length,
+    "*%02X\r\n",
+    checksum
+  );
 }
 
 // ============================================================================
-// BLE Functions - Prototipos adelantados
+// ETHERNET
 // ============================================================================
 
-bool initializeBLE() {
-  if (!BLE.begin()) {
-    Serial.println("[BLE] Error inicializando BLE");
-    bleReady = false;
+bool initializeEthernet() {
+  pinMode(SD_CS_PIN, OUTPUT);
+  digitalWrite(SD_CS_PIN, HIGH);
+
+  Ethernet.init(ETHERNET_CS_PIN);
+
+  Serial.println(
+    "[ETH] Inicializando Ethernet"
+  );
+
+  int dhcpResult =
+    Ethernet.begin(ethernetMac);
+
+  if (dhcpResult == 0) {
+    Serial.println(
+      "[ETH] DHCP no disponible"
+    );
+
+    ethernetReady = false;
     return false;
   }
 
-  BLE.setDeviceName(BLE_DEVICE_NAME);
-  BLE.setLocalName(BLE_DEVICE_NAME);
-  BLE.setAdvertisedService(diagnosticBLEService);
+  delay(1000);
 
-  diagnosticBLEService.addCharacteristic(bleRxCharacteristic);
-  diagnosticBLEService.addCharacteristic(bleTxCharacteristic);
+  Serial.print("[ETH] IP local: ");
+  Serial.println(Ethernet.localIP());
 
-  BLE.addService(diagnosticBLEService);
-
-  bleRxCharacteristic.setEventHandler(BLEWritten, [](BLEDevice central, BLECharacteristic characteristic) {
-    // Manejador de escritura
-  });
-
-  BLE.advertise();
-
-  debugPrintf("[BLE] Advertencia iniciada como %s\n", BLE_DEVICE_NAME);
-  bleReady = true;
+  ethernetReady = true;
 
   return true;
 }
 
-void maintainBLE() {
-  BLEDevice central = BLE.central();
+void maintainEthernet() {
+  uint32_t now = millis();
 
-  if (central && !bleConnected) {
-    debugPrintf("[BLE] Conectado: %s\n", central.address().c_str());
-    bleConnected = true;
-    bleCentral = central;
-  } else if (!central && bleConnected) {
-    debugPrintf("[BLE] Desconectado\n");
-    bleConnected = false;
+  if (
+    now - lastEthernetCheckMs <
+    5000
+  ) {
+    return;
   }
+
+  lastEthernetCheckMs = now;
+
+  if (
+    Ethernet.hardwareStatus() ==
+    EthernetNoHardware
+  ) {
+    ethernetReady = false;
+
+    Serial.println(
+      "[ETH] Shield no detectado"
+    );
+
+    return;
+  }
+
+  if (
+    Ethernet.linkStatus() ==
+    LinkOFF
+  ) {
+    ethernetReady = false;
+
+    Serial.println(
+      "[ETH] Cable desconectado"
+    );
+
+    return;
+  }
+
+  ethernetReady = true;
 }
 
-void readBLECommands() {
-  if (!bleConnected) return;
-
-  while (bleRxCharacteristic.written()) {
-    bleRxCharacteristic.written(false);
+void transmitEthernet(const char* sentence) {
+  if (
+    !ethernetReady ||
+    sentence == nullptr
+  ) {
+    return;
   }
+
+  if (!ethernetClient.connected()) {
+    ethernetClient.stop();
+
+    if (
+      !ethernetClient.connect(
+        ethernetTargetIP,
+        ethernetTargetPort
+      )
+    ) {
+      return;
+    }
+
+    Serial.println(
+      "[ETH] Conexión TCP establecida"
+    );
+  }
+
+  ethernetClient.write(
+    (const uint8_t*)sentence,
+    strlen(sentence)
+  );
 }
 
-void processBLECommand(const char* command) {
-  if (command == nullptr) return;
-
-  if (strcmp(command, "status") == 0) {
-    sendBLEStatus();
-  } else if (strcmp(command, "imu") == 0) {
-    sendBLEIMU();
-  } else if (strcmp(command, "com2") == 0) {
-    sendBLECOM2();
-  } else if (strcmp(command, "help") == 0) {
-    sendBLEHelp();
-  } else if (strcmp(command, "magcal status") == 0) {
-    char text[128];
-    snprintf(text, sizeof(text), "MAGCAL=%s\r\n", magCalValid ? "YES" : "NO");
-    sendBLEText(text);
-  }
-}
+// ============================================================================
+// BLE - TRANSMISIÓN DE TEXTO
+// ============================================================================
 
 void sendBLEText(const char* text) {
-  if (!bleConnected || text == nullptr) return;
+  if (
+    !bleReady ||
+    !bleConnected ||
+    text == nullptr
+  ) {
+    return;
+  }
 
-  size_t len = strlen(text);
-  for (size_t i = 0; i < len; i += BLE_TX_CHUNK_SIZE) {
-    size_t chunk = len - i > BLE_TX_CHUNK_SIZE ? BLE_TX_CHUNK_SIZE : len - i;
-    bleTxCharacteristic.writeValue((uint8_t*)(text + i), chunk);
-    delay(10);
+  size_t remaining = strlen(text);
+
+  while (
+    remaining > 0 &&
+    bleConnected
+  ) {
+    size_t chunkLength = remaining;
+
+    if (chunkLength > BLE_TX_CHUNK_SIZE) {
+      chunkLength = BLE_TX_CHUNK_SIZE;
+    }
+
+    bool result =
+      bleTxCharacteristic.writeValue(
+        (const uint8_t*)text,
+        chunkLength
+      );
+
+    if (!result) {
+      break;
+    }
+
+    text += chunkLength;
+    remaining -= chunkLength;
+
+    BLE.poll();
   }
 }
 
+// ============================================================================
+// BLE - DIAGNÓSTICO STATUS
+// ============================================================================
+
 void sendBLEStatus() {
-  char text[256];
-  snprintf(text, sizeof(text),
-    "[STATUS]\r\n"
-    "State=%s Lock=%s\r\n"
-    "GNSS=%s FIX=%d SAT=%d\r\n"
-    "IMU=%s YAW=%s\r\n",
-    movementStateText(),
-    lockedValid ? "YES" : "NO",
+  if (!bleConnected) {
+    return;
+  }
+
+  char yawText[24];
+  char lockedYawText[24];
+
+  if (isnan(currentYaw)) {
+    strcpy(yawText, "N/A");
+  } else {
+    snprintf(
+      yawText,
+      sizeof(yawText),
+      "%.1f",
+      currentYaw
+    );
+  }
+
+  if (isnan(lockedYaw)) {
+    strcpy(lockedYawText, "N/A");
+  } else {
+    snprintf(
+      lockedYawText,
+      sizeof(lockedYawText),
+      "%.1f",
+      lockedYaw
+    );
+  }
+
+  char text[900];
+
+  snprintf(
+    text,
+    sizeof(text),
+    "\r\n"
+    "========== STATUS ==========\r\n"
+    "GNSS: %s\r\n"
+    "GGA entrada fix: %d\r\n"
+    "HAS: %s\r\n"
+    "Solucion: %s\r\n"
+    "Satelites: %d\r\n"
+    "HDOP: %s\r\n"
+    "Hora UTC: %s\r\n"
+    "\r\n"
+    "Entrada GNSS:\r\n"
+    "LAT: %.8f\r\n"
+    "LON: %.8f\r\n"
+    "ALT: %.2f m\r\n"
+    "Velocidad: %.3f m/s\r\n"
+    "Curso: %.1f deg\r\n"
+    "\r\n"
+    "IMU: %s\r\n"
+    "Yaw actual: %s deg\r\n"
+    "Yaw montaje: %.1f deg\r\n"
+    "Declinacion: %.1f deg\r\n"
+    "MagCal: %s\r\n"
+    "\r\n"
+    "Estado: %s\r\n"
+    "Bloqueado: %s\r\n"
+    "Muestras posicion: %d\r\n"
+    "Muestras yaw: %d\r\n"
+    "Yaw bloqueado: %s deg\r\n"
+    "\r\n"
+    "Salida COM2:\r\n"
+    "LAT: %.8f\r\n"
+    "LON: %.8f\r\n"
+    "ALT: %.2f m\r\n"
+    "Fix salida: %d\r\n"
+    "Offset antena: %.2f m\r\n"
+    "Frecuencia: %d Hz\r\n"
+    "Tramas: %lu\r\n"
+    "Bytes: %lu\r\n"
+    "\r\n"
+    "Ethernet: %s\r\n"
+    "BLE: conectado\r\n"
+    "============================\r\n",
     gnssValid ? "OK" : "FAIL",
     inputFixQuality,
+    hasActive ? "ACTIVO" : "NO",
+    solutionTypeText(),
     satelliteCount,
+    hdopText,
+    utcTime,
+    currentLat,
+    currentLon,
+    currentAlt,
+    currentSpeedMS,
+    currentCourse,
     imuAvailable ? "OK" : "FAIL",
-    isnan(currentYaw) ? "N/A" : "OK"
+    yawText,
+    YAW_MOUNT_OFFSET_DEG_VAR,
+    DECLINATION_DEG_VAR,
+    magCalValid ? "SI" : "NO",
+    movementStateText(),
+    lockedValid ? "SI" : "NO",
+    sampleCount,
+    yawSampleCount,
+    lockedYawText,
+    lastOutputLat,
+    lastOutputLon,
+    lastOutputAlt,
+    lastOutputFixQuality,
+    OFFSET_M_VAR,
+    1000 / OUTPUT_PERIOD_MS_VAR,
+    (unsigned long)com2FramesSent,
+    (unsigned long)com2BytesSent,
+    ethernetReady ? "OK" : "FAIL"
   );
+
   sendBLEText(text);
 }
+
+// ============================================================================
+// BLE - DIAGNÓSTICO IMU
+// ============================================================================
 
 void sendBLEIMU() {
-  char text[256];
-  snprintf(text, sizeof(text),
-    "[IMU]\r\n"
-    "Status=%s Addr=0x%02X\r\n"
-    "Temp=%.1fC\r\n"
-    "Roll=%.1f Pitch=%.1f\r\n"
-    "Yaw=%s\r\n",
+  if (!bleConnected) {
+    return;
+  }
+
+  char text[640];
+
+  snprintf(
+    text,
+    sizeof(text),
+    "\r\n"
+    "======== ICM-20948 ========\r\n"
+    "Estado: %s\r\n"
+    "Direccion: 0x%02X\r\n"
+    "\r\n"
+    "ACC mg:\r\n"
+    "X: %.2f\r\n"
+    "Y: %.2f\r\n"
+    "Z: %.2f\r\n"
+    "\r\n"
+    "MAG uT corregido:\r\n"
+    "X: %.2f\r\n"
+    "Y: %.2f\r\n"
+    "Z: %.2f\r\n"
+    "\r\n"
+    "Gyro Z: %.2f dps\r\n"
+    "Roll: %.2f deg\r\n"
+    "Pitch: %.2f deg\r\n"
+    "Rumbo magnetico: %.2f deg\r\n"
+    "Rumbo fusionado: %.2f deg\r\n"
+    "Yaw final: %.2f deg\r\n"
+    "Temperatura: %.2f C\r\n"
+    "\r\n"
+    "MagCal valida: %s\r\n"
+    "MagCal activa: %s\r\n"
+    "Muestras MagCal: %lu\r\n"
+    "Offset X: %.2f\r\n"
+    "Offset Y: %.2f\r\n"
+    "Offset Z: %.2f\r\n"
+    "===========================\r\n",
     imuAvailable ? "OK" : "FAIL",
     imuAddress,
+    accFX,
+    accFY,
+    accFZ,
+    magFX,
+    magFY,
+    magFZ,
+    gyroZdps,
+    radiansToDegrees(imuRoll),
+    radiansToDegrees(imuPitch),
+    isnan(magHeading) ? -1.0 : magHeading,
+    isnan(fusedHeading) ? -1.0 : fusedHeading,
+    isnan(currentYaw) ? -1.0 : currentYaw,
     imuTempC,
-    imuRoll,
-    imuPitch,
-    isnan(currentYaw) ? "N/A" : "OK"
+    magCalValid ? "SI" : "NO",
+    magCalRunning ? "SI" : "NO",
+    (unsigned long)magCalSamples,
+    magCal.offsetX,
+    magCal.offsetY,
+    magCal.offsetZ
   );
+
   sendBLEText(text);
 }
+
+// ============================================================================
+// BLE - DIAGNÓSTICO COM2
+// ============================================================================
 
 void sendBLECOM2() {
-  char text[128];
-  snprintf(text, sizeof(text),
-    "[COM2]\r\n"
-    "Frames=%lu Bytes=%lu\r\n",
-    (unsigned long)com2FramesSent,
-    (unsigned long)com2BytesSent
-  );
-  sendBLEText(text);
-}
-
-void sendBLEHelp() {
-  const char* help =
-    "[COMANDOS]\r\n"
-    "status - Estado actual\r\n"
-    "imu - Datos IMU\r\n"
-    "com2 - Estadísticas COM2\r\n"
-    "magcal status - Calibración magnetómetro\r\n"
-    "yawoff <val> - Offset Yaw\r\n"
-    "help - Este mensaje\r\n";
-  sendBLEText(help);
-}
-
-// ============================================================================
-// sendBLEPeriodicDiagnostic - CON PRECISIÓN H_ERR, V_ERR
-// ============================================================================
-
-void sendBLEPeriodicDiagnostic() {
-  if (!bleReady || !bleConnected) {
+  if (!bleConnected) {
     return;
   }
 
   uint32_t now = millis();
 
-  if (now - lastBleDiagnosticMs < BLE_DIAGNOSTIC_PERIOD_MS) {
+  char text[520];
+
+  snprintf(
+    text,
+    sizeof(text),
+    "\r\n"
+    "=========== COM2 ===========\r\n"
+    "Pin TX: D%d\r\n"
+    "Velocidad: %d baud\r\n"
+    "Modo: UART software directa\r\n"
+    "Periodo: %u ms\r\n"
+    "Frecuencia: %d Hz\r\n"
+    "Tramas enviadas: %lu\r\n"
+    "Bytes enviados: %lu\r\n"
+    "Ultima trama hace: %lu ms\r\n"
+    "Fix ultima salida: %d\r\n"
+    "LAT salida: %.8f\r\n"
+    "LON salida: %.8f\r\n"
+    "ALT salida: %.2f m\r\n"
+    "GNSS valido: %s\r\n"
+    "Estado: %s\r\n"
+    "Bloqueado: %s\r\n"
+    "============================\r\n",
+    COM2_TX_PIN,
+    COM2_BAUD,
+    OUTPUT_PERIOD_MS_VAR,
+    1000 / OUTPUT_PERIOD_MS_VAR,
+    (unsigned long)com2FramesSent,
+    (unsigned long)com2BytesSent,
+    com2LastFrameMs > 0
+      ? (unsigned long)(now - com2LastFrameMs)
+      : 0UL,
+    lastOutputFixQuality,
+    lastOutputLat,
+    lastOutputLon,
+    lastOutputAlt,
+    gnssValid ? "SI" : "NO",
+    movementStateText(),
+    lockedValid ? "SI" : "NO"
+  );
+
+  sendBLEText(text);
+}
+
+// ============================================================================
+// BLE - AYUDA
+// ============================================================================
+
+void sendBLEHelp() {
+  const char* help =
+    "\r\n"
+    "======= COMANDOS BLE =======\r\n"
+    "status\r\n"
+    "  Estado general completo.\r\n"
+    "\r\n"
+    "imu\r\n"
+    "  Datos del ICM-20948.\r\n"
+    "\r\n"
+    "com2\r\n"
+    "  Estado y contadores COM2.\r\n"
+    "\r\n"
+    "magcal start\r\n"
+    "  Inicia calibracion.\r\n"
+    "\r\n"
+    "magcal stop\r\n"
+    "  Finaliza y guarda.\r\n"
+    "\r\n"
+    "magcal reset\r\n"
+    "  Borra calibracion.\r\n"
+    "\r\n"
+    "yawoff <grados>\r\n"
+    "  Ajuste montaje -180..180.\r\n"
+    "\r\n"
+    "help\r\n"
+    "  Muestra esta ayuda.\r\n"
+    "============================\r\n";
+
+  sendBLEText(help);
+}
+
+// ============================================================================
+// BLE - COMANDOS
+// ============================================================================
+
+void processBLECommand(const char* commandInput) {
+  if (
+    commandInput == nullptr ||
+    commandInput[0] == '\0'
+  ) {
+    return;
+  }
+
+  char command[BLE_COMMAND_BUFFER_SIZE];
+
+  strncpy(
+    command,
+    commandInput,
+    sizeof(command) - 1
+  );
+
+  command[sizeof(command) - 1] = '\0';
+
+  // Eliminar espacios iniciales.
+  char* start = command;
+
+  while (
+    *start != '\0' &&
+    isspace((unsigned char)*start)
+  ) {
+    start++;
+  }
+
+  // Eliminar espacios finales.
+  size_t length = strlen(start);
+
+  while (
+    length > 0 &&
+    isspace((unsigned char)start[length - 1])
+  ) {
+    start[length - 1] = '\0';
+    length--;
+  }
+
+  // Convertir a minúsculas.
+  for (size_t i = 0; start[i] != '\0'; i++) {
+    start[i] =
+      (char)tolower((unsigned char)start[i]);
+  }
+
+  Serial.print("[BLE CMD] ");
+  Serial.println(start);
+
+  if (strcmp(start, "status") == 0) {
+    sendBLEStatus();
+    return;
+  }
+
+  if (strcmp(start, "imu") == 0) {
+    sendBLEIMU();
+    return;
+  }
+
+  if (strcmp(start, "com2") == 0) {
+    sendBLECOM2();
+    return;
+  }
+
+  if (strcmp(start, "help") == 0) {
+    sendBLEHelp();
+    return;
+  }
+
+  if (strcmp(start, "magcal start") == 0) {
+    if (!imuAvailable) {
+      sendBLEText(
+        "ERROR: IMU no disponible\r\n"
+      );
+
+      return;
+    }
+
+    startMagCalibration();
+
+    sendBLEText(
+      "OK: calibracion iniciada.\r\n"
+      "Gira lentamente el equipo en todos los ejes.\r\n"
+      "Despues envia: magcal stop\r\n"
+    );
+
+    return;
+  }
+
+  if (strcmp(start, "magcal stop") == 0) {
+    if (!magCalRunning) {
+      sendBLEText(
+        "ERROR: calibracion no iniciada\r\n"
+      );
+
+      return;
+    }
+
+    if (stopMagCalibration()) {
+      char response[240];
+
+      snprintf(
+        response,
+        sizeof(response),
+        "OK: calibracion guardada\r\n"
+        "Muestras: %lu\r\n"
+        "Offset: %.2f, %.2f, %.2f\r\n",
+        (unsigned long)magCalSamples,
+        magCal.offsetX,
+        magCal.offsetY,
+        magCal.offsetZ
+      );
+
+      sendBLEText(response);
+    } else {
+      sendBLEText(
+        "ERROR: calibracion insuficiente.\r\n"
+        "Repite girando el equipo completamente.\r\n"
+      );
+    }
+
+    return;
+  }
+
+  if (strcmp(start, "magcal reset") == 0) {
+    resetMagCalibration();
+
+    sendBLEText(
+      "OK: calibracion borrada\r\n"
+    );
+
+    return;
+  }
+
+  if (strncmp(start, "yawoff ", 7) == 0) {
+    char* endPointer = nullptr;
+
+    double value =
+      strtod(start + 7, &endPointer);
+
+    if (
+      endPointer == start + 7 ||
+      *endPointer != '\0' ||
+      !isfinite(value) ||
+      value < -180.0 ||
+      value > 180.0
+    ) {
+      sendBLEText(
+        "ERROR: usa yawoff -180..180\r\n"
+      );
+
+      return;
+    }
+
+    YAW_MOUNT_OFFSET_DEG_VAR = value;
+    saveMagCalibration();
+
+    imuFilterSeeded = false;
+    fusedHeading = NAN;
+
+    char response[120];
+
+    snprintf(
+      response,
+      sizeof(response),
+      "OK: yawoff=%.1f grados\r\n",
+      YAW_MOUNT_OFFSET_DEG_VAR
+    );
+
+    sendBLEText(response);
+
+    return;
+  }
+
+  sendBLEText(
+    "ERROR: comando desconocido\r\n"
+    "Escribe: help\r\n"
+  );
+}
+
+void readBLECommands() {
+  if (
+    !bleReady ||
+    !bleConnected
+  ) {
+    return;
+  }
+
+  if (!bleRxCharacteristic.written()) {
+    return;
+  }
+
+  int valueLength =
+    bleRxCharacteristic.valueLength();
+
+  if (valueLength <= 0) {
+    return;
+  }
+
+  const uint8_t* data =
+    bleRxCharacteristic.value();
+
+  for (int i = 0; i < valueLength; i++) {
+    char character = (char)data[i];
+
+    if (
+      character == '\r' ||
+      character == '\n'
+    ) {
+      if (bleCommandIndex > 0) {
+        bleCommandBuffer[bleCommandIndex] =
+          '\0';
+
+        processBLECommand(
+          bleCommandBuffer
+        );
+
+        bleCommandIndex = 0;
+      }
+
+      continue;
+    }
+
+    if (
+      bleCommandIndex <
+      BLE_COMMAND_BUFFER_SIZE - 1
+    ) {
+      bleCommandBuffer[bleCommandIndex++] =
+        character;
+    }
+  }
+
+  /*
+    Algunas aplicaciones BLE envían el comando sin CR/LF.
+
+    Si el paquete recibido no contiene salto de línea,
+    se procesa inmediatamente como un comando completo.
+  */
+  if (bleCommandIndex > 0) {
+    bleCommandBuffer[bleCommandIndex] = '\0';
+
+    processBLECommand(bleCommandBuffer);
+
+    bleCommandIndex = 0;
+  }
+}
+
+// ============================================================================
+// BLE - INICIALIZACIÓN Y CONEXIÓN
+// ============================================================================
+
+bool initializeBLE() {
+  Serial.println("[BLE] Inicializando");
+
+  if (!BLE.begin()) {
+    Serial.println(
+      "[BLE] ERROR inicializando BLE"
+    );
+
+    bleReady = false;
+    return false;
+  }
+
+  BLE.setLocalName(BLE_DEVICE_NAME);
+  BLE.setDeviceName(BLE_DEVICE_NAME);
+
+  BLE.setAdvertisedService(
+    diagnosticBLEService
+  );
+
+  diagnosticBLEService.addCharacteristic(
+    bleRxCharacteristic
+  );
+
+  diagnosticBLEService.addCharacteristic(
+    bleTxCharacteristic
+  );
+
+  BLE.addService(
+    diagnosticBLEService
+  );
+
+  const char initialValue[] = "FWD-GPS BLE listo\r\n";
+
+  bleTxCharacteristic.writeValue(
+    (const uint8_t*)initialValue,
+    strlen(initialValue)
+  );
+
+  BLE.advertise();
+
+  bleReady = true;
+  bleConnected = false;
+
+  Serial.print("[BLE] Anunciando: ");
+  Serial.println(BLE_DEVICE_NAME);
+
+  return true;
+}
+
+void maintainBLE() {
+  if (!bleReady) {
+    return;
+  }
+
+  BLE.poll();
+
+  if (!bleConnected) {
+    BLEDevice candidate = BLE.central();
+
+    if (candidate) {
+      bleCentral = candidate;
+      bleConnected = true;
+      bleCommandIndex = 0;
+
+      Serial.print("[BLE] Conectado: ");
+      Serial.println(bleCentral.address());
+
+      sendBLEText(
+        "\r\n"
+        "FWD-GPS Rev.2.4 BLE\r\n"
+        "Diagnostico conectado\r\n"
+        "Escribe: help\r\n"
+      );
+
+      lastBleDiagnosticMs = millis();
+    }
+
+    return;
+  }
+
+  if (!bleCentral.connected()) {
+    bleConnected = false;
+    bleCommandIndex = 0;
+
+    Serial.println(
+      "[BLE] Cliente desconectado"
+    );
+
+    BLE.advertise();
+
+    return;
+  }
+
+  readBLECommands();
+}
+
+// ============================================================================
+// BLE - DIAGNÓSTICO PERIÓDICO
+// ============================================================================
+
+void sendBLEPeriodicDiagnostic() {
+  if (
+    !bleReady ||
+    !bleConnected
+  ) {
+    return;
+  }
+
+  uint32_t now = millis();
+
+  if (
+    now - lastBleDiagnosticMs <
+    BLE_DIAGNOSTIC_PERIOD_MS
+  ) {
     return;
   }
 
@@ -1463,22 +2989,37 @@ void sendBLEPeriodicDiagnostic() {
   char hErrText[16] = "N/A";
   char vErrText[16] = "N/A";
 
-  // Mostrar precisión solo si disponible y reciente (<5s)
-  if (isfinite(gnsHorizErr) && (now - lastGnstMs) < 5000) {
-    snprintf(hErrText, sizeof(hErrText), "%.3f", gnsHorizErr);
-  }
-  if (isfinite(gnsVertErr) && (now - lastGnstMs) < 5000) {
-    snprintf(vErrText, sizeof(vErrText), "%.3f", gnsVertErr);
+  if (
+    lastGnstMs != 0 &&
+    now - lastGnstMs < 5000
+  ) {
+    if (isfinite(gnsHorizErr)) {
+      snprintf(
+        hErrText,
+        sizeof(hErrText),
+        "%.3f",
+        gnsHorizErr
+      );
+    }
+
+    if (isfinite(gnsVertErr)) {
+      snprintf(
+        vErrText,
+        sizeof(vErrText),
+        "%.3f",
+        gnsVertErr
+      );
+    }
   }
 
-  char text[640];
+  char text[600];
 
   snprintf(
     text,
     sizeof(text),
     "\r\n"
     "[DIAG]\r\n"
-    "GNSS=%s FIX_IN=%d HAS=%s SOL=%s SAT=%d HDOP=%s\r\n"
+    "GNSS=%s FIX_IN=%d HAS=%s SOL=%s SAT=%d\r\n"
     "H_ERR=%sm V_ERR=%sm\r\n"
     "STATE=%s LOCK=%s SPD=%.3f m/s\r\n"
     "IMU=%s YAW=%s MAGCAL=%s\r\n"
@@ -1490,7 +3031,6 @@ void sendBLEPeriodicDiagnostic() {
     hasActive ? "ON" : "OFF",
     solutionTypeText(),
     satelliteCount,
-    hdopText,
     hErrText,
     vErrText,
     movementStateText(),
@@ -1512,174 +3052,222 @@ void sendBLEPeriodicDiagnostic() {
 }
 
 // ============================================================================
-// IMU Functions - Stubs
-// ============================================================================
-
-bool initializeICM20948() {
-  return true;
-}
-
-double readYaw() {
-  return NAN;
-}
-
-// ============================================================================
-// Calibración Magnetómetro - Stubs
-// ============================================================================
-
-void loadMagCalibration() {
-  uint32_t magic = 0;
-  EEPROM.get(EEPROM_MAGCAL_ADDR, magic);
-  
-  if (magic == EEPROM_MAGIC) {
-    EEPROM.get(EEPROM_MAGCAL_ADDR, magCal);
-    magCalValid = true;
-    debugPrintf("[MAGCAL] Cargada desde EEPROM\n");
-  } else {
-    magCalValid = false;
-    debugPrintf("[MAGCAL] No encontrada en EEPROM\n");
-  }
-}
-
-void saveMagCalibration() {
-  EEPROM.put(EEPROM_MAGCAL_ADDR, magCal);
-  debugPrintf("[MAGCAL] Guardada en EEPROM\n");
-}
-
-void startMagCalibration() {
-  magCalRunning = true;
-  magCalSamples = 0;
-  magMinX = 0; magMaxX = 0;
-  magMinY = 0; magMaxY = 0;
-  magMinZ = 0; magMaxZ = 0;
-  debugPrintf("[MAGCAL] Calibración iniciada\n");
-}
-
-bool stopMagCalibration() {
-  magCalRunning = false;
-  if (magCalSamples > 0) {
-    magCal.offsetX = -(magMaxX + magMinX) / 2.0;
-    magCal.offsetY = -(magMaxY + magMinY) / 2.0;
-    magCal.offsetZ = -(magMaxZ + magMinZ) / 2.0;
-    magCalValid = true;
-    saveMagCalibration();
-    debugPrintf("[MAGCAL] Calibración completada\n");
-    return true;
-  }
-  return false;
-}
-
-void resetMagCalibration() {
-  magCal.offsetX = 0.0;
-  magCal.offsetY = 0.0;
-  magCal.offsetZ = 0.0;
-  magCalValid = false;
-  debugPrintf("[MAGCAL] Reset\n");
-}
-
-// ============================================================================
-// COM2 Output
+// TRANSMISIÓN GCGGA
 // ============================================================================
 
 void transmitGCGGA() {
-  if (!lockedValid) {
+  uint32_t now = millis();
+
+  if (
+    now - lastOutputMs <
+    OUTPUT_PERIOD_MS_VAR
+  ) {
     return;
   }
 
-  // Construir y enviar GCGGA
-  char gcgga[256];
-  
-  int lat_deg = (int)lockedLat;
-  double lat_min = (fabs(lockedLat) - fabs(lat_deg)) * 60.0;
-  
-  int lon_deg = (int)lockedLon;
-  double lon_min = (fabs(lockedLon) - fabs(lon_deg)) * 60.0;
-  
-  snprintf(gcgga, sizeof(gcgga),
-    "$GCGGA,%s,%02d%06.3f,%c,%03d%06.3f,%c,%d,%d,%.1f,%.3f,M,0.0,M,,*",
-    utcTime,
-    abs(lat_deg), lat_min, lockedLat >= 0 ? 'N' : 'S',
-    abs(lon_deg), lon_min, lockedLon >= 0 ? 'E' : 'W',
-    lastOutputFixQuality,
-    satelliteCount,
-    atof(hdopText),
-    lockedAlt
+  lastOutputMs = now;
+
+  int fixQuality =
+    getOutputFixQuality();
+
+  if (
+    !gnssValid ||
+    fixQuality < 1
+  ) {
+    return;
+  }
+
+  double outputLat = currentLat;
+  double outputLon = currentLon;
+  double outputAlt = currentAlt;
+
+  if (
+    movementState == LOCKED &&
+    lockedValid
+  ) {
+    /*
+      En LOCKED se utiliza la posición promediada.
+
+      lockedLat y lockedLon ya incluyen la corrección
+      de offset calculada con lockedYaw.
+    */
+    outputLat = lockedLat;
+    outputLon = lockedLon;
+    outputAlt = lockedAlt;
+  } else if (
+    imuAvailable &&
+    !isnan(currentYaw)
+  ) {
+    /*
+      En MOVING o AVERAGING se corrige cada posición
+      utilizando el yaw actual.
+    */
+    applyAntennaOffset(
+      currentLat,
+      currentLon,
+      currentYaw,
+      &outputLat,
+      &outputLon
+    );
+  }
+
+  char sentence[240];
+
+  createGCGGA(
+    sentence,
+    sizeof(sentence),
+    outputLat,
+    outputLon,
+    outputAlt,
+    fixQuality
   );
 
-  uint8_t checksum = calculateNmeaChecksum(gcgga + 1);
-  char checksumHex[3];
-  snprintf(checksumHex, sizeof(checksumHex), "%02X", checksum);
-  
-  strcat(gcgga, checksumHex);
-  strcat(gcgga, "\r\n");
+  addNmeaChecksumAndCrlf(
+    sentence,
+    sizeof(sentence)
+  );
 
-  softSerialWriteString(gcgga, strlen(gcgga));
+  size_t sentenceLength =
+    strlen(sentence);
 
-  lastOutputLat = lockedLat;
-  lastOutputLon = lockedLon;
-  lastOutputAlt = lockedAlt;
-  lastOutputFixQuality = inputFixQuality;
+  // Guardar exactamente lo que se va a transmitir.
+  lastOutputLat = outputLat;
+  lastOutputLon = outputLon;
+  lastOutputAlt = outputAlt;
+  lastOutputFixQuality = fixQuality;
+
+  // COM2 por D2, 38400 baudios.
+  softSerialWriteString(
+    sentence,
+    sentenceLength
+  );
 
   com2FramesSent++;
   com2LastFrameMs = millis();
+
+  // Ethernet W5500.
+  transmitEthernet(sentence);
+
+  // Monitor USB.
+  Serial.print("[TX] ");
+  Serial.print(sentence);
 }
 
 // ============================================================================
-// setup
+// SETUP
 // ============================================================================
 
 void setup() {
   Serial.begin(115200);
-  delay(100);
-  Serial.println("\n[SETUP] Iniciando RS232-FWS-GPS Rev.2.7 BLE");
+
+  delay(500);
+
+  Serial.println();
+  Serial.println(
+    "=========================================="
+  );
+  Serial.println(
+    "RS232-FMW-GPS Rev.2.4 BLE"
+  );
+  Serial.println(
+    "Arduino UNO R4 WiFi"
+  );
+  Serial.println(
+    "=========================================="
+  );
+  Serial.println(
+    "GNSS: Serial1 D0/D1 @ 115200"
+  );
+  Serial.println(
+    "COM2: D2 @ 38400, UART software directa"
+  );
+  Serial.println(
+    "Ethernet: W5500 -> 192.168.1.122:15919"
+  );
+  Serial.println(
+    "IMU: ICM-20948 I2C"
+  );
+  Serial.println(
+    "BLE: FWD-GPS-Diag"
+  );
+  Serial.println(
+    "WiFi Server: deshabilitado"
+  );
+  Serial.println(
+    "=========================================="
+  );
 
   pinMode(LED1_PIN, OUTPUT);
   pinMode(LED2_PIN, OUTPUT);
 
+  digitalWrite(LED1_PIN, LOW);
+  digitalWrite(LED2_PIN, LOW);
+
+  startupLedTest();
+
+  pinMode(SD_CS_PIN, OUTPUT);
+  digitalWrite(SD_CS_PIN, HIGH);
+
+  // Entrada GNSS UM980.
+  Serial1.begin(GNSS_BAUD);
+
+  // Salida COM2.
   softSerialInit();
 
+  // I2C e IMU.
   Wire.begin();
   Wire.setClock(I2C_CLOCK_HZ);
 
-  delay(500);
-
-  if (!initializeICM20948()) {
-    Serial.println("[IMU] Falla inicializando ICM-20948");
-    imuAvailable = false;
-  }
-
   loadMagCalibration();
 
-  if (!initializeBLE()) {
-    Serial.println("[BLE] Falla inicializando BLE");
-    bleReady = false;
+  if (!initializeICM20948()) {
+    Serial.println(
+      "[SETUP] IMU no disponible; "
+      "se reintentará"
+    );
   }
 
-  Serial.println("[SETUP] Inicialización completada");
+  // Ethernet W5500.
+  if (!initializeEthernet()) {
+    Serial.println(
+      "[SETUP] Ethernet no disponible"
+    );
+  }
+
+  // Bluetooth Low Energy.
+  if (!initializeBLE()) {
+    Serial.println(
+      "[SETUP] BLE no disponible"
+    );
+  }
+
+  Serial.println(
+    "[SETUP] Sistema preparado"
+  );
 }
 
 // ============================================================================
-// loop
+// LOOP
 // ============================================================================
 
 void loop() {
-  readGNSS();
-
-  if (imuAvailable) {
-    readYaw();
-  }
-
+  /*
+    BLE se atiende al principio y al final para mantener
+    la conexión sin interferir con COM2.
+  */
   maintainBLE();
-  readBLECommands();
+
+  maintainEthernet();
+
+  readGNSS();
+  readYaw();
 
   updateMovementState();
   updateLeds();
 
-  uint32_t now = millis();
-  if (now - lastOutputMs >= OUTPUT_PERIOD_MS_VAR) {
-    transmitGCGGA();
-    lastOutputMs = now;
-  }
+  transmitGCGGA();
 
   sendBLEPeriodicDiagnostic();
+
+  maintainBLE();
 }
