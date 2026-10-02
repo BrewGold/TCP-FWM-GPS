@@ -6,183 +6,160 @@ Sistema GNSS para Dynatest FWD con receptor ArduSimple simpleRTK3B Budget (UM980
 
 Proporcionar al Dynatest FWD una posición GNSS mejorada mediante:
 
-- Galileo HAS (High Accuracy Service) cuando esté disponible.
-- SBAS/EGNOS como respaldo.
+- Galileo HAS (High Accuracy Service) cuando esté disponible (fix 5 en GGA).
 - Promedio temporal de coordenadas durante la parada.
-- Corrección de offset antena-pistón mediante IMU (BNO085).
+- Corrección de offset antena-pistón mediante IMU (ICM-20948).
 - Presentación del estado GNSS mediante LEDs externos.
-- Terminal TCP interactivo para diagnóstico y control en tiempo real.
+- Diagnóstico y control por Bluetooth Low Energy (BLE).
 
 ## Arquitectura (alto nivel)
 
 - **GNSS**: ArduSimple simpleRTK3B Budget (UM980) → Serial1 (D0/D1) @ 115200 bps
 - **MCU**: Arduino UNO R4 WiFi (Renesas RA4M1)
-- **IMU**: Adafruit BNO085/BNO086 → I2C (SDA/SCL)
-- **Salida FWD**: Software-Serial D2 @ 38400 bps (GGA 10 Hz)
+- **IMU**: SparkFun ICM-20948 → I2C (0x69/0x68)
+- **Salida FWD (COM2)**: UART software TX-only en D2 @ 38400 bps ($GCGGA a 10 Hz)
 - **Ethernet**: Shield W5500 → servidor TCP 192.168.1.122:15919
-- **WiFi AP**: diagnóstico y control por TCP 192.168.4.1:15920
+- **BLE**: servicio Nordic UART `FWD-GPS-Diag` para diagnóstico y comandos
 - **LEDs**: D5 (GNSS+IMU+HAS), D6 (Movimiento)
 
 Flujo principal:
 
-1. Arduino UNO R4 WiFi recibe GGA/RMC/PUBX,00 del UM980 por Serial1.
-2. Detecta estado HAS activo mediante `PUBX,00`.
-3. Lee yaw del BNO085 para corrección de offset antena-pistón.
-4. Detecta estado MOVING/STOPPED mediante máquina de estados.
-5. En STOPPED promedia coordenadas (15 s por defecto).
-6. Aplica offset antena-pistón si el magnetómetro está operativo.
-7. Emite GGA corregida a FWD por D2 @ 38400 bps.
-8. Envía la misma GGA por Ethernet a un servidor externo.
-9. WiFi AP ofrece terminal TCP para diagnóstico y control en tiempo real.
+1. Arduino recibe GGA/RMC del UM980 por Serial1.
+2. Detecta el tipo de solución desde el campo de calidad del GGA (fix 5 = HAS activo).
+3. Lee yaw del ICM-20948 (fusión magnetómetro + giróscopo, compensación de inclinación).
+4. Detecta estado MOVING/AVERAGING/LOCKED mediante máquina de estados.
+5. En parada promedia coordenadas (15 s por defecto, media recortada 5%).
+6. Aplica offset antena-pistón (0.55 m, dirección yaw+270°).
+7. Emite $GCGGA corregida al FWD por D2 @ 38400 bps.
+8. Envía la misma trama por Ethernet a un servidor externo.
+9. BLE ofrece diagnóstico periódico y comandos interactivos.
 10. LEDs reflejan GNSS, IMU, HAS y movimiento/bloqueo.
-
-## Prioridad de solución GNSS
-
-1. Galileo HAS (cuando esté disponible)
-2. GPS autónomo con HAS mejorado
-3. SBAS (EGNOS)
-4. GPS estándar
 
 ## Estados de software
 
 - **MOVING**: lectura GNSS continua.
 - **AVERAGING**: acumulación de muestras durante la ventana de promedio.
-- **LOCKED**: posición fija y de salida estable.
+- **LOCKED**: posición fija y de salida estable (fix de salida = 4).
 
 ## Estructura del repositorio
 
-- `firmware/arduino/RS232-FMW-GPS_V-2_2.ino`: versión actual de firmware.
+- `firmware/arduino/RS232-RWM-GPS_V2-5.ino`: versión actual de firmware.
 - `firmware/arduino/README.md`: detalle técnico del firmware.
 - `docs/functional-spec-v1.0.md`: especificación funcional completa.
 - `docs/system-architecture.md`: detalle de arquitectura y comunicaciones.
+- `CHANGELOG.md`: historial de versiones.
 
 ## Versiones
 
-### Rev.2.2 (Actual)
+### Rev.2.5 (Actual)
 
 **Cambios principales:**
-- ✅ Diagnóstico TCP independiente de la frecuencia de salida GGA
-- ✅ `freq` controla solo la salida FWD/GGA (1–10 Hz)
-- ✅ `diag` controla el intervalo del diagnóstico TCP (1–60 s)
-- ✅ Diagnóstico por TCP cada 5 s por defecto
-- ✅ `status` y `help` responden de forma inmediata
-- ✅ `OUTPUT` y `DIAG` están separadas conceptualmente
+- ✅ Detección HAS desde el campo de calidad del GGA de entrada (fix 5 = HAS activo)
+- ✅ LED1 solo queda fijo con HAS activo; con fix 1 parpadea (nunca fijo)
+- ✅ Precisión horizontal estimada según HDOP y tipo de fix (UERE × HDOP) en BLE `status` y diagnóstico periódico
+- ✅ Eliminado el parser `$PUBX,00` (el UM980 no lo emite)
 
-**Terminal TCP:**
-- SSID: `FWD-GPS-Diag`
-- Contraseña: `12345678`
-- IP del AP: `192.168.4.1:15920`
+### Rev.2.4
 
-**Comandos Rev.2.2:**
-- `freq <1-10>` — salida GGA/FWD (Hz)
-- `speed_stop <0-1>` — umbral parada (m/s)
-- `speed_move <0-1>` — umbral movimiento (m/s)
-- `offset <0-2>` — offset antena-pistón (m)
-- `decl <-180-180>` — declinación magnética (°)
-- `avg <5-60>` — ventana promedio (s)
-- `diag <1-60>` — intervalo diagnóstico TCP (s)
-- `status` — estado actual inmediato
-- `help` — ayuda del terminal
+- Diagnóstico BLE (Nordic UART Service, `FWD-GPS-Diag`)
+- IMU ICM-20948 por I2C con fusión yaw (giróscopo + magnetómetro)
+- Calibración del magnetómetro por BLE con guardado en EEPROM
+- COM2 por UART software directa en D2 @ 38400
+- WiFi Server eliminado
+
+### Rev.2.2
+
+- Diagnóstico TCP independiente de la frecuencia de salida GGA (`freq` / `diag`)
 
 ### Rev.2.1
 
-**Cambios principales:**
-- WiFi AP nativo `FWD-GPS-Diag`
-- Terminal TCP interactivo
-- Variables dinámicas y validación de rangos
-- Diagnóstico y control por TCP
+- WiFi AP nativo + terminal TCP interactivo con variables dinámicas
 
 ### Rev.2
 
-**Cambios principales:**
-- Detección HAS mediante `PUBX,00`
-- LEDs con semaforización GNSS + IMU + HAS + movimiento
-- Salida 10 Hz a FWD
-- Ethernet a 192.168.1.122:15919
-- Corrección antena-pistón con BNO085
+- Detección HAS mediante `PUBX,00`, LEDs, salida 10 Hz, Ethernet, BNO085
 
 ### Rev.1
 
-**Base funcional:**
-- 10 Hz GNSS entrada/salida
-- Máquina de estados MOVING/AVERAGING/LOCKED
-- Promedio de coordenadas 15 s
-- BNO085 opcional
+- Base funcional: máquina de estados, promedio de coordenadas, salida FWD
 
-## LEDs (Rev.2.2)
+## LEDs (Rev.2.5)
 
 ### LED1 (D5) - GNSS + IMU + HAS
 
 | Estado | Significado |
 |--------|-------------|
-| **OFF** | Sin GNSS |
-| **200ms parpadeo** | GNSS OK pero sin magnetómetro |
-| **600ms parpadeo** | GNSS + IMU pero sin HAS |
-| **1000ms parpadeo** | GNSS + IMU + HAS, esperando bloqueo |
-| **ON** | GNSS + IMU + HAS + posición bloqueada |
+| **OFF** | Sin GNSS válido |
+| **200 ms parpadeo** | GNSS OK pero IMU no disponible |
+| **600 ms parpadeo** | GNSS + IMU pero sin HAS (fix 1/2/4) |
+| **ON** | HAS activo (fix 5 en GGA de entrada) |
 
 ### LED2 (D6) - Movimiento
 
 | Estado | Significado |
 |--------|-------------|
 | **OFF** | En movimiento |
-| **400ms parpadeo** | Promediando posición |
+| **400 ms parpadeo** | Promediando posición |
 | **ON** | Posición bloqueada |
 
-## Diagnóstico TCP (Rev.2.2)
+## Diagnóstico BLE (Rev.2.5)
 
-La salida GGA/FWD y el diagnóstico TCP están separados:
+- **Nombre**: `FWD-GPS-Diag`
+- **Servicio**: Nordic UART Service (`6E400001-B5A3-F393-E0A9-E50E24DCCA9E`)
+- **RX (escribir comandos)**: `6E400002-...`
+- **TX (notificaciones)**: `6E400003-...`
+- Compatible con apps tipo Serial Bluetooth Terminal, nRF Connect y MIT App Inventor (extensión BluetoothLE).
 
-- `freq` controla la salida FWD/GGA
-- `diag` controla la periodicidad del diagnóstico TCP
-- por defecto, el diagnóstico se envía cada 5 s
-- `status` siempre responde inmediatamente
+**Comandos BLE:**
 
-Ejemplo de diagnóstico TCP:
+| Comando | Función |
+|---|---|
+| `status` | Estado general completo (incluye precisión estimada) |
+| `imu` | Datos del ICM-20948 y calibración |
+| `com2` | Estado y contadores de la salida COM2 |
+| `magcal start` | Inicia calibración del magnetómetro |
+| `magcal stop` | Finaliza y guarda calibración en EEPROM |
+| `magcal reset` | Borra la calibración |
+| `yawoff <-180..180>` | Ajuste de montaje del yaw |
+| `help` | Ayuda |
 
-```text
-[DIAG] uptime=125s
-  GNSS=OK fix=4 sats=18 hdop=0.8
-  LAT=40.123456 LON=-3.456789 ALT=650.4
-  SPEED=0.03 m/s COURSE=181.2 deg
-  SOLUTION=HAS HAS=ON
-  IMU=OK YAW=OK
-  STATE=LOCKED LOCK=YES samples=150
-  OUTPUT=10 Hz avg=15s offset=0.55 m decl=1.0 deg
-```
+Además, cada 5 s se envía un bloque `[DIAG]` con GNSS, fix, HAS, HDOP, precisión estimada, estado, IMU y contadores COM2.
 
-## Configuración UM980 (u-center)
+## Precisión estimada
+
+La precisión horizontal aproximada se calcula como `UERE típico × HDOP`:
+
+| Tipo de solución | UERE |
+|---|---|
+| GPS autónomo (fix 1) | ~3.00 m |
+| DGPS (fix 2) | ~1.00 m |
+| RTK (fix 4) | ~0.02 m |
+| HAS (fix 5) | ~0.20 m |
+
+## Configuración UM980
 
 ```text
 UNLOG COM3
 CONFIG COM3 115200
 GNGGA COM3 0.1
 GNRMC COM3 0.1
-CONFIG NMEA PUBX ENABLE
 ENABLE HAS
 SAVECONFIG
 ```
 
-## Roadmap
-
-- ✅ Fase 1: validación UM980 → Arduino UNO R4 WiFi → FWD
-- ✅ Fase 2: HAS detection (PUBX,00)
-- ✅ Fase 3: promedio de 15 s en parada + corrección antena
-- ✅ Fase 4: LEDs, Ethernet y diagnóstico WiFi
-- ✅ Fase 5: terminal TCP con separación `freq` / `diag` (Rev.2.2)
-
 ## Dependencias
 
 - Arduino IDE 2.x+
-- Librería: `Adafruit_BNO08x`
+- Librería: `SparkFun ICM-20948 Arduino Library`
+- Librería: `ArduinoBLE`
 - Librería: `Ethernet` (W5500)
-- Librería: `WiFiS3` (nativa del UNO R4 WiFi)
+- Librería: `EEPROM` (nativa)
 
 ## Hardware requerido
 
 - Arduino UNO R4 WiFi
 - ArduSimple simpleRTK3B Budget (UM980)
-- Adafruit BNO085/BNO086
+- SparkFun ICM-20948
 - W5500 Ethernet shield
 - MAX3232 o equivalente para RS232
 - 2 LEDs + resistencias (220 Ω)

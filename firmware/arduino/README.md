@@ -4,17 +4,19 @@ Este directorio contiene la implementación funcional del firmware para el Ardui
 
 ## Versión actual
 
-- `RS232-FMW-GPS_V-2_1.ino` — **Rev.2.1**
+- `RS232-RWM-GPS_V2-5.ino` — **Rev.2.5**
 
 La versión actual incluye:
 
 - GNSS UM980 por Serial1 @ 115200 bps
-- Salida FWD por D2 @ 38400 bps (soft-serial TX-only)
-- BNO085 por I2C para corrección de offset antena-pistón
-- Detección HAS mediante `PUBX,00`
+- Salida FWD (COM2) por D2 @ 38400 bps (UART software TX-only)
+- ICM-20948 por I2C para corrección de offset antena-pistón
+- Detección HAS por fix 5 en el GGA de entrada
+- Precisión horizontal estimada según HDOP y tipo de fix
 - LEDs D5/D6 con estados GNSS + IMU + HAS + movimiento
 - Ethernet W5500 a 192.168.1.122:15919
-- WiFi AP para diagnóstico / control por TCP
+- Diagnóstico y control por Bluetooth Low Energy (Nordic UART Service)
+- Calibración del magnetómetro por BLE con guardado en EEPROM
 
 ---
 
@@ -24,33 +26,36 @@ La versión actual incluye:
 - **Puerto**: `Serial1`
 - **Pins**: D0 = RX, D1 = TX
 - **Baud**: `115200`
-- **Formato**: GGA + RMC + PUBX,00
+- **Formato**: GGA + RMC
 
 ### UART salida FWD (Dynatest)
-- **Puerto**: software TX-only en D2
+- **Puerto**: UART software TX-only en D2 (bit-banging con `noInterrupts()`)
 - **Baud**: `38400`
-- **Formato**: GGA únicamente
+- **Formato**: `$GCGGA` únicamente
 - **Periodo**: `100 ms` (10 Hz)
 
 ### IMU / Magnetómetro
-- **Sensor**: BNO085 / BNO086
-- **Bus**: I2C
-- **Pins**: SDA/SCL (pines del Arduino UNO R4 WiFi)
-- **Frecuencia**: `100 kHz`
-- **Uso**: yaw para corrección de offset antena-pistón
+- **Sensor**: ICM-20948 (SparkFun)
+- **Bus**: I2C @ 100 kHz
+- **Direcciones**: 0x69 (primaria) / 0x68 (secundaria)
+- **Uso**: yaw fusionado (giróscopo + magnetómetro con compensación de inclinación) para corrección de offset antena-pistón
+- **Calibración**: offsets hard-iron guardados en EEPROM, gestionados por BLE
 
 ### LEDs
 - **LED1**: D5 — estado GNSS + IMU + HAS
 - **LED2**: D6 — estado movimiento / bloqueado
 
 ### Ethernet
-- **Shield**: W5500
-- **Destino**: `192.168.1.122:15919`
+- **Shield**: W5500 (CS en D10, SD CS en D4 deshabilitado)
+- **Destino**: `192.168.1.122:15919` (DHCP)
 
-### WiFi diagnóstico / control
-- **AP SSID**: `FWD-GPS-Diag`
-- **Contraseña**: `12345678`
-- **TCP**: `192.168.4.1:15920`
+### Bluetooth Low Energy
+- **Nombre**: `FWD-GPS-Diag`
+- **Servicio**: Nordic UART Service
+  - Servicio: `6E400001-B5A3-F393-E0A9-E50E24DCCA9E`
+  - RX (comandos): `6E400002-B5A3-F393-E0A9-E50E24DCCA9E`
+  - TX (notificaciones): `6E400003-B5A3-F393-E0A9-E50E24DCCA9E`
+- Chunks de 20 bytes; acepta comandos con o sin CR/LF (compatible con MIT App Inventor)
 
 ---
 
@@ -59,30 +64,35 @@ La versión actual incluye:
 ### Movimiento
 
 - `MOVING → AVERAGING`
-  - se entra cuando velocidad < umbral durante 2 s
+  - velocidad < 0.20 m/s mantenida 2 s
 - `AVERAGING → LOCKED`
-  - cuando se completa la ventana de promedio
+  - al completar la ventana de promedio (15 s), media recortada 5% + media circular del yaw
 - `LOCKED → MOVING`
-  - si la velocidad aumenta o se aleja +1.0 m del punto bloqueado
+  - velocidad > 0.30 m/s, o alejamiento > 1.0 m del punto bloqueado
 
-### HAS
+### Detección de solución (Rev.2.5)
 
-- `SIN_HAS`
-- `HAS_ACTIVO`
-- `HAS_CONVERGIENDO` (estado visual por LED)
+El tipo de solución se determina por el campo de calidad del GGA de entrada:
+
+| Fix GGA | Solución | HAS activo |
+|---|---|---|
+| 1 | GPS autónomo | NO |
+| 2 | DGPS | NO |
+| 4 | RTK | NO |
+| 5 | HAS (PPP/Float) | **SÍ** |
 
 ### Corrección antena → pistón
 
 - Offset por defecto: `0.55 m`
 - Dirección: `yaw + 270°`
 - Declinación magnética por defecto: `1.0°`
-- Solo se aplica si el magnetómetro está operativo (`BNO085` disponible)
+- Solo se aplica si el ICM-20948 está operativo y hay yaw válido
 
 ---
 
 ## 3) Parámetros de navegación
 
-Los valores por defecto son:
+Valores por defecto:
 
 - `OUTPUT_PERIOD_MS = 100` → 10 Hz
 - `OFFSET_M = 0.55`
@@ -93,8 +103,7 @@ Los valores por defecto son:
 - `SPEED_EXIT_STOP = 0.30 m/s`
 - `RELOCK_DISTANCE_M = 1.0`
 - `MAX_SAMPLES = 160`
-
-En Rev.2.1 estos parámetros pueden modificarse en tiempo real por TCP mediante comandos del terminal.
+- `YAW_GYRO_WEIGHT = 0.98` (filtro complementario)
 
 ---
 
@@ -102,9 +111,9 @@ En Rev.2.1 estos parámetros pueden modificarse en tiempo real por TCP mediante 
 
 El firmware genera y transmite siempre una trama tipo:
 
-- `$GPGGA,...*CS`
+- `$GCGGA,...*CS`
 
-Con fix quality según el estado:
+Con fix quality de salida según el estado:
 
 1. `LOCKED` + posición válida → `fixQ = 4`
 2. HAS activo → `fixQ = 2`
@@ -114,83 +123,78 @@ Con fix quality según el estado:
 
 ## 5) Flujo de funcionamiento
 
-1. Lee líneas NMEA del UM980 por `Serial1` (`$GPGGA`, `$GPRMC`, `$PUBX,00`).
-2. Valida checksum y parsea posición, velocidad, altitud y tipo de solución.
-3. Revisa HAS y su estado activo mediante `PUBX,00`.
-4. Lee yaw del BNO085 vía I2C.
+1. Lee líneas NMEA del UM980 por `Serial1` (`GGA`, `RMC`; prefijos GP/GN/GC).
+2. Valida checksum y parsea posición, velocidad, altitud, HDOP y fix de entrada.
+3. Determina la solución (GPS/DGPS/RTK/HAS) desde el fix del GGA.
+4. Lee el ICM-20948 y calcula yaw fusionado.
 5. Actualiza la máquina de estados (`MOVING`, `AVERAGING`, `LOCKED`).
 6. En `AVERAGING` acumula lat/lon/alt/yaw y calcula promedio recortado.
-7. En `LOCKED`, transmite la posición corregida; si no hay bloqueo, transmite instantánea con offset si hay yaw.
-8. Emite GGA por D2 hacia el Dynatest a 10 Hz.
+7. En `LOCKED` transmite la posición corregida; si no hay bloqueo, transmite instantánea con offset si hay yaw.
+8. Emite `$GCGGA` por D2 hacia el Dynatest a 10 Hz.
 9. Envía la misma trama por Ethernet.
-10. Publica diagnóstico por WiFi TCP y permite comandos interactivos.
+10. Publica diagnóstico por BLE cada 5 s y atiende comandos interactivos.
 
 ---
 
-## 6) Diagnóstico TCP / WiFi
-
-La Rev.2.1 incorpora una interfaz TCP por WiFi para diagnosticar y ajustar parámetros en campo sin depender del USB.
+## 6) Diagnóstico y comandos BLE
 
 ### Comandos disponibles
 
 ```
-freq <1-10>        Cambiar frecuencia GNSS (Hz)
-speed_stop <0-1>   Umbral parada (m/s)
-speed_move <0-1>   Umbral movimiento (m/s)
-offset <0-2>       Offset antena-pistón (m)
-decl <-180-180>    Declinación magnética (°)
-avg <5-60>         Ventana promedio (segundos)
-status             Mostrar estado actual
+status             Estado general completo (incluye precisión estimada)
+imu                Datos del ICM-20948 y calibración
+com2               Estado y contadores COM2
+magcal start       Inicia calibración del magnetómetro
+magcal stop        Finaliza, valida y guarda en EEPROM
+magcal reset       Borra la calibración
+yawoff <grados>    Ajuste montaje yaw (-180..180)
 help               Lista de comandos
 ```
 
-### Ejemplo
+### Calibración del magnetómetro
 
-```
-> help
-=== COMANDOS DISPONIBLES ===
-freq <1-10>        - Frecuencia en Hz
-speed_stop <0-1>   - Umbral parada (m/s)
-speed_move <0-1>   - Umbral movimiento (m/s)
-offset <0-2>       - Offset antena (m)
-decl <-180-180>    - Declinación magnética (°)
-avg <5-60>         - Ventana promedio (s)
-status             - Mostrar estado actual
-help               - Este mensaje
-===========================
+1. Enviar `magcal start`.
+2. Girar el equipo lentamente en todos los ejes (mínimo 200 muestras, span ≥ 10 µT en X e Y).
+3. Enviar `magcal stop` → guarda offsets en EEPROM.
+4. Ajustar `yawoff` comparando el yaw mostrado con el rumbo real.
 
-> freq 5
-OK: Frecuencia cambiada a 5 Hz (200 ms)
+### Precisión estimada
 
-> status
-=== ESTADO ACTUAL ===
-Frecuencia: 5 Hz (200 ms)
-Offset antena: 0.55 m
-Estado GNSS: OK
-HAS activo: SI
-Movimiento: LOCKED
-...
+Se reporta en `status` (`Precision est`) y en `[DIAG]` (`ACC`), calculada como `UERE × HDOP`:
+
+- GPS: 3.00 m · DGPS: 1.00 m · RTK: 0.02 m · HAS: 0.20 m
+
+### Ejemplo de diagnóstico periódico
+
+```text
+[DIAG]
+GNSS=OK FIX_IN=5 HAS=ON SOL=HAS SAT=22
+HDOP=0.6 ACC=0.12 m
+STATE=LOCKED LOCK=YES SPD=0.030 m/s
+IMU=OK YAW=181.2 MAGCAL=YES
+RAW=40.12345678,-3.45678901
+OUT=40.12345950,-3.45679120 FIX_OUT=4
+COM2 frames=1250 bytes=103750
 ```
 
 ---
 
 ## 7) Checklist rápido de validación
 
-1. Conectar Arduino por alimentación externa adecuada.
-2. Confirmar que el WiFi AP `FWD-GPS-Diag` aparece.
-3. Conectar desde Android al TCP `192.168.4.1:15920`.
-4. Verificar que llegan líneas tipo:
-   - `[time] GNSS:OK LAT:... LON:... ALT:...`
-5. Confirmar `PUBX,00` y `HAS activo` en logs.
-6. Confirmar `GGA` en salida FWD por D2 a 10 Hz.
-7. Validar LEDs en estados reales del sistema.
-8. Comprobar `status` y `help` funcionales.
+1. Conectar Arduino con alimentación externa adecuada.
+2. Confirmar que el dispositivo BLE `FWD-GPS-Diag` aparece al escanear.
+3. Conectar desde Android (Serial Bluetooth Terminal / nRF Connect / app propia) y activar notificaciones en TX.
+4. Enviar `status` y verificar GNSS, fix de entrada, HAS y precisión estimada.
+5. Confirmar LED1 fijo solo con fix 5 (HAS) y parpadeo con fix 1.
+6. Confirmar `$GCGGA` en salida FWD por D2 a 10 Hz.
+7. Validar calibración con `magcal start/stop` e `imu`.
+8. Comprobar la conexión Ethernet al servidor externo.
 
 ---
 
 ## 8) Notas técnicas
 
-- `SoftwareSerial.h` no es compatible con Arduino UNO R4 WiFi; la salida FWD se implementa por bit-banging TX-only en D2.
+- `SoftwareSerial.h` no es compatible con Arduino UNO R4 WiFi; la salida FWD se implementa por bit-banging TX-only en D2 con interrupciones desactivadas por byte.
 - El UM980 debe configurarse con:
 
 ```
@@ -198,26 +202,31 @@ UNLOG COM3
 CONFIG COM3 115200
 GNGGA COM3 0.1
 GNRMC COM3 0.1
-CONFIG NMEA PUBX ENABLE
 ENABLE HAS
 SAVECONFIG
 ```
 
-- La corrección de antena se aplica solo si el BNO085 está disponible.
-- El diagnostic TCP se usa para pruebas de campo y ajuste sin reprogramar.
+- La corrección de antena se aplica solo si el ICM-20948 está disponible y el yaw es válido.
+- La calibración del magnetómetro y el `yawoff` se guardan en EEPROM y sobreviven reinicios.
+- El WiFi Server de revisiones anteriores fue eliminado en Rev.2.4.
 
 ---
 
 ## 9) Archivos relevantes
 
-- `RS232-FMW-GPS_V-2_1.ino` — firmware actual de referencia
-- `README.md` — documentación general del proyecto
-- `CHANGELOG.md` — historial de versiones y novedades
+- `RS232-RWM-GPS_V2-5.ino` — firmware actual de referencia
+- `RS232-RWM-GPS_V2-4.ino` — revisión anterior (BLE, ICM-20948)
+- `RS232-FMW-GPS_V-2_2.ino` / `V-2_1` / `V-2_0` / `V-1_0` — revisiones históricas
+- `../../README.md` — documentación general del proyecto
+- `../../CHANGELOG.md` — historial de versiones
 
 ---
 
 ## 10) Versiones
 
-- **Rev.2.1**: WiFi AP + control TCP + diagnóstico interactivo
-- **Rev.2**: HAS, LEDs, 10 Hz, BNO085, Ethernet
+- **Rev.2.5**: HAS por fix 5 en GGA, LED1 fijo solo con HAS, precisión estimada por HDOP en BLE
+- **Rev.2.4**: BLE (Nordic UART), ICM-20948, calibración magnetómetro, COM2 UART software, sin WiFi
+- **Rev.2.2**: separación `freq` / `diag` en terminal TCP
+- **Rev.2.1**: WiFi AP + control TCP interactivo
+- **Rev.2**: HAS (`PUBX,00`), LEDs, 10 Hz, BNO085, Ethernet
 - **Rev.1**: base funcional con promedio de coordenadas y salida FWD
