@@ -1,208 +1,144 @@
-# Especificación funcional v1.0
+# Especificación funcional
 
-## Sistema GNSS para Dynatest FWD con RTK3B Budget
+> **Rev.2.5** — actualizado 2026-10-02. La v1.0 original (ESP32-S3 + NTRIP) se conserva al final como apéndice histórico.
+
+## Sistema GNSS para Dynatest FWD con simpleRTK3B Budget (UM980)
 
 ## Objetivo
 
 Proporcionar al Dynatest FWD una posición GNSS mejorada mediante:
 
-- RTK cuando exista conectividad NTRIP.
-- Galileo HAS cuando esté disponible.
-- SBAS/EGNOS como respaldo.
-- Promedio temporal de coordenadas durante la parada.
+- Galileo HAS (High Accuracy Service) cuando esté disponible (fix 5 en GGA).
+- Promedio temporal de coordenadas durante la parada (media recortada).
+- Corrección de offset antena-pistón mediante yaw del IMU.
 - Presentación del estado GNSS mediante LEDs externos.
-
-No se implementará corrección por rumbo basada en trayectoria.
+- Diagnóstico y control por Bluetooth Low Energy (BLE).
 
 ## Arquitectura Hardware
 
 ### Receptor GNSS
 
-- ArduSimple simpleRTK3B Budget
-- UM980
-
-Características:
-
-- COM1 → UPrecise
-- COM3 → Comunicación principal con ESP32-S3
+- ArduSimple simpleRTK3B Budget (UM980)
+- COM1 → UPrecise (configuración)
+- COM3 → Comunicación principal con el Arduino (115200 bps, GGA+RMC a 10 Hz)
+- HAS habilitado (`ENABLE HAS`)
 
 ### Controlador
 
-- ESP32-S3 formato UNO
+- Arduino UNO R4 WiFi (Renesas RA4M1)
 
 Funciones:
 
-- Cliente NTRIP
-- Recepción GNSS
-- Detección de parada
-- Promedio de coordenadas
-- Generación GGA
-- Control LEDs
+- Recepción y parsing GNSS (GGA/RMC, checksum NMEA)
+- Detección del tipo de solución por el fix del GGA (1=GPS, 2=DGPS, 4=RTK, 5=HAS)
+- Detección de parada y máquina de estados MOVING/AVERAGING/LOCKED
+- Promedio de coordenadas (media recortada 5%, media circular del yaw)
+- Corrección de offset antena-pistón (0.55 m, yaw+270°)
+- Generación `$GCGGA` a 10 Hz
+- Control de LEDs
+- Diagnóstico BLE y envío por Ethernet
 
-### Sensor de orientación (experimental)
+### Sensor de orientación
 
-- Adafruit BNO085/BNO086
-- Interfaz I²C
-- Uso previsto: obtención de rumbo absoluto
-
-Estado actual:
-
-- Experimental
-- No se utilizará inicialmente para corregir coordenadas
+- SparkFun ICM-20948 (I²C, 0x69/0x68)
+- Yaw fusionado: magnetómetro con compensación de inclinación + giróscopo (filtro complementario 0.98)
+- Calibración hard-iron y offset de montaje guardados en EEPROM, gestionados por BLE
+- Uso: dirección de la corrección antena-pistón
 
 ### Comunicación Dynatest
 
+- UART software TX-only en D2 @ 38400 bps (bit-banging; SoftwareSerial no es compatible con RA4M1)
 - Conversión RS232 con MAX3232
 
-Conexión:
+### Ethernet
 
-- ESP32-S3 UART2
-- MAX3232
-- Dynatest
+- Shield W5500 (CS D10) → servidor TCP `192.168.1.122:15919` (misma trama GGA)
+
+### Diagnóstico BLE
+
+- Nombre: `FWD-GPS-Diag`, servicio Nordic UART Service
+- Comandos: `status`, `imu`, `com2`, `magcal start/stop/reset`, `yawoff`, `help`
+- Diagnóstico periódico cada 5 s con precisión estimada (UERE × HDOP)
 
 ## Comunicaciones
 
-### UART RTK3B
-
-- Puerto: ESP32-S3 UART1
-- Velocidad: 115200 baud
-- Mensajes recibidos: GGA, RMC
-- Mensajes transmitidos: RTCM
-
-### UART Dynatest
-
-- Puerto: ESP32-S3 UART2
-- Velocidad: 38400 baud
-- Salida: GGA a 10 Hz
-
-### I²C IMU
-
-- ESP32-S3 ↔ BNO085
-- Velocidad: 100 kHz
+| Enlace | Puerto | Velocidad | Datos |
+|---|---|---|---|
+| UM980 → Arduino | Serial1 (D0/D1) | 115200 | GGA + RMC (10 Hz) |
+| Arduino → Dynatest | D2 (UART SW) + MAX3232 | 38400 | `$GCGGA` 10 Hz |
+| Arduino ↔ ICM-20948 | I²C | 100 kHz | ACC/MAG/GYR/TEMP |
+| Arduino → Servidor | W5500 Ethernet | TCP | `$GCGGA` |
+| Arduino ↔ Móvil | BLE (NUS) | — | diagnóstico/comandos |
 
 ## Posicionamiento
 
-### Prioridad de soluciones
+### Detección de solución
 
-1. RTK FIX
-2. Galileo HAS
-3. SBAS (EGNOS)
-4. GPS autónomo
+Según el campo de calidad del GGA de entrada:
+
+| Fix | Solución | HAS activo | Precisión típica (UERE) |
+|---|---|---|---|
+| 1 | GPS autónomo | NO | ~3.00 m |
+| 2 | DGPS | NO | ~1.00 m |
+| 4 | RTK | NO | ~0.02 m |
+| 5 | HAS (PPP/Float) | **SÍ** | ~0.20 m |
+
+Precisión estimada reportada por BLE: `UERE × HDOP`.
 
 ### Detección de parada
 
-Condición preliminar (cualquiera):
-
-- Velocidad < 0,2 km/h durante 2 s
-- o desplazamiento < 10 cm durante 2 s
+- Velocidad < 0.20 m/s mantenida 2 s → entra en AVERAGING
+- Velocidad > 0.30 m/s → vuelve a MOVING (histéresis)
+- Alejamiento > 1.0 m del punto bloqueado → vuelve a MOVING
 
 ### Promedio GNSS
 
-Al detectar parada:
-
-- Ventana: 15 segundos
-- Muestras: 10 Hz × 15 s = 150 observaciones
-
-Resultado:
-
-- Latitud media
-- Longitud media
-- Altitud media
+- Ventana: 15 s (hasta 160 muestras a 10 Hz)
+- Media recortada 5% para lat/lon/alt
+- Media circular para el yaw
 
 ### Coordenada enviada
 
-Inicialmente:
-
-- Posición media de la antena GNSS
-
-No se aplicará:
-
-- Corrección por trayectoria previa
+- En LOCKED: posición promediada + offset antena-pistón con yaw promediado (fix salida = 4)
+- En MOVING/AVERAGING: posición instantánea + offset con yaw actual (fix salida = 2 con HAS, 1 sin HAS)
 
 ## Indicadores externos
 
-Ubicación:
+### LED1 (D5) — GNSS + IMU + HAS
 
-- Integrados en el módulo remoto asociado al BNO085
+- OFF → sin GNSS válido
+- Parpadeo 200 ms → GNSS OK, IMU no disponible
+- Parpadeo 600 ms → GNSS + IMU, sin HAS (fix 1/2/4)
+- ON fijo → HAS activo (fix 5)
 
-### LED 1 — POWER
+### LED2 (D6) — Movimiento
 
-- Apagado → Sin alimentación
-- Encendido → Sistema operativo
+- OFF → en movimiento
+- Parpadeo 400 ms → promediando
+- ON fijo → posición bloqueada
 
-### LED 2 — GNSS
+## Cableado IMU (RJ45)
 
-- Apagado → Sin solución
-- Parpadeo lento → GPS autónomo
-- 2 destellos → SBAS
-- 3 destellos → Galileo HAS
-- Encendido fijo → RTK FIX
-
-## Cableado IMU
-
-Conector:
-
-- RJ45 (CAT5e/CAT6)
-
-Asignación:
-
-- Pin 1: SDA
-- Pin 2: GND
-- Pin 3: SCL
-- Pin 4: +3V3
-- Pin 5: +3V3
-- Pin 6: GND
-- Pin 7: LED_POWER
-- Pin 8: LED_GNSS
-
-## Software
-
-### Estado MOVING
-
-- Leer GGA
-- Leer RMC
-- Actualizar historial
-
-### Estado STOPPED
-
-- Promedio 15 s
-
-### Estado OUTPUT
-
-- Mantener salida GGA a 10 Hz al Dynatest
+- Pin 1: SDA · Pin 2: GND · Pin 3: SCL · Pin 4: +3V3
+- Pin 5: +3V3 · Pin 6: GND · Pin 7: LED1 · Pin 8: LED2
 
 ## Fases del proyecto
 
-### Fase 1
+- ✅ Fase 1: validación UM980 → Arduino → FWD (38400, GGA 10 Hz)
+- ✅ Fase 2: detección HAS
+- ✅ Fase 3: promedio 15 s en parada + corrección antena
+- ✅ Fase 4: LEDs, Ethernet y diagnóstico
+- ✅ Fase 5: diagnóstico BLE con calibración IMU y precisión estimada (Rev.2.4–2.5)
 
-RTK3B → ESP32-S3 → Dynatest
+---
 
-Validar:
+## Apéndice: especificación original v1.0 (histórica, no vigente)
 
-- 38400 baud
-- GGA 10 Hz
-- Compatibilidad Dynatest
+La concepción inicial del sistema difiere de la implementación actual:
 
-### Fase 2
-
-Implementar:
-
-- NTRIP
-- RTCM
-- RTK FIX
-
-### Fase 3
-
-Implementar:
-
-- Promedio de 15 s
-
-### Fase 4
-
-Instalar:
-
-- BNO085
-- LEDs
-- RJ45
-
-Para evaluación de corrección geométrica futura.
+- Controlador previsto: **ESP32-S3** (formato UNO) → implementado finalmente con **Arduino UNO R4 WiFi**
+- Cliente **NTRIP/RTCM para RTK FIX** → no implementado; se usa **Galileo HAS** como solución de precisión
+- IMU previsto: **BNO085/BNO086** (experimental) → sustituido por **ICM-20948** con calibración propia
+- Prioridad original: RTK FIX > HAS > SBAS > autónomo
+- LEDs originales: LED_POWER + LED_GNSS con códigos de destellos por tipo de solución
+- Detección de parada original: velocidad < 0.2 km/h o desplazamiento < 10 cm durante 2 s
