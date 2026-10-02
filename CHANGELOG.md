@@ -5,6 +5,73 @@ Todos los cambios notables en este proyecto están documentados aquí.
 El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [2.5.0] - 2026-10-02
+
+### ✨ Agregado
+
+- **Precisión horizontal estimada según HDOP y tipo de fix**
+  - Cálculo: `UERE típico × HDOP`
+  - UERE: GPS ~3.00 m · DGPS ~1.00 m · RTK ~0.02 m · HAS ~0.20 m
+  - Nueva línea `Precision est` en el comando BLE `status`
+  - Nueva línea `HDOP=... ACC=... m` en el diagnóstico periódico BLE `[DIAG]`
+  - Nueva función `estimatedAccuracyMeters()` y variable `currentHdop`
+
+### 🔄 Modificado
+
+- **Detección HAS por fix 5 en el GGA de entrada**
+  - El tipo de solución (GPS/DGPS/RTK/HAS) se determina desde el campo
+    de calidad del GGA: 1=GPS, 2=DGPS, 4=RTK, 5=HAS
+  - `hasActive` solo es true con fix 5
+- **LED1 (D5)**: solo queda fijo con HAS activo (fix 5);
+  con fix 1/2/4 parpadea a 600 ms (antes quedaba fijo con fix 1 en LOCKED)
+
+### 🗑️ Eliminado
+
+- Parser `$PUBX,00` (sentencia u-blox que el UM980 no emite)
+
+### 📝 Documentación
+
+- README principal y README de firmware actualizados a Rev.2.5
+
+## [2.4.0] - 2026-10-01
+
+### ✨ Agregado
+
+- **Diagnóstico Bluetooth Low Energy (BLE)**
+  - Nombre: `FWD-GPS-Diag`, servicio compatible Nordic UART Service
+  - Comandos: `status`, `imu`, `com2`, `help`, `magcal start/stop/reset`, `yawoff <-180..180>`
+  - Diagnóstico periódico `[DIAG]` cada 5 s
+  - Chunks TX de 20 bytes; acepta comandos con o sin CR/LF (compatible MIT App Inventor)
+- **IMU ICM-20948** (reemplaza al BNO085)
+  - Fusión de yaw: giróscopo + magnetómetro con compensación de inclinación
+  - Filtro complementario (`YAW_GYRO_WEIGHT = 0.98`)
+  - Reintento automático de inicialización y detección en 0x69/0x68
+- **Calibración del magnetómetro por BLE**
+  - Offsets hard-iron y `yawoff` guardados en EEPROM (persisten tras reinicio)
+  - Validación: mínimo 200 muestras y span ≥ 10 µT en X e Y
+
+### 🔄 Modificado
+
+- COM2 reescrito como UART software directa sin buffer (bit-banging con `noInterrupts()` por byte)
+- Salida NMEA renombrada a `$GCGGA`
+
+### 🗑️ Eliminado
+
+- WiFi AP y terminal TCP de diagnóstico (sustituidos por BLE)
+
+## [2.2.0] - 2026-09-29
+
+### ✨ Agregado
+
+- Comando `diag <1-60>` — intervalo del diagnóstico TCP (s)
+
+### 🔄 Modificado
+
+- Diagnóstico TCP independiente de la frecuencia de salida GGA
+  - `freq` controla solo la salida FWD/GGA (1–10 Hz)
+  - `diag` controla el intervalo del diagnóstico TCP (por defecto 5 s)
+- `status` y `help` responden de forma inmediata
+
 ## [2.1.0] - 2026-09-28
 
 ### ✨ Agregado
@@ -130,14 +197,18 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
 ## Notas de compatibilidad
 
-- **Rev.2.1** es **retrocompatible** con Rev.2 (sin cambios en hardware/protocolo de entrada)
-- Las variables dinámicas no se guardan en EEPROM (reset al reinicio)
-- El WiFi AP es complementario; Ethernet sigue funcionando en paralelo
+- **Rev.2.5** es retrocompatible con Rev.2.4 (mismo hardware; solo cambia la detección HAS, el LED1 y el contenido BLE)
+- **Rev.2.4** cambia el IMU (BNO085 → ICM-20948) y elimina el WiFi AP/TCP en favor de BLE
+- La calibración del magnetómetro y `yawoff` se guardan en EEPROM desde Rev.2.4
+- El WiFi AP (Rev.2.1–2.2) fue eliminado en Rev.2.4; Ethernet sigue funcionando en paralelo
 
 ## Dependencias por versión
 
-| Versión | Arduino | Adafruit_BNO08x | Ethernet | WiFiS3 |
-|---------|---------|-----------------|----------|--------|
-| 2.1     | UNO R4  | ✅              | ✅       | ✅     |
-| 2.0     | UNO R4  | ✅              | ✅       | ❌     |
-| 1.0     | UNO R4  | ✅              | ✅       | ❌     |
+| Versión | Arduino | IMU                  | Ethernet | WiFiS3 | ArduinoBLE | EEPROM |
+|---------|---------|----------------------|----------|--------|------------|--------|
+| 2.5     | UNO R4  | SparkFun ICM-20948   | ✅       | ❌     | ✅         | ✅     |
+| 2.4     | UNO R4  | SparkFun ICM-20948   | ✅       | ❌     | ✅         | ✅     |
+| 2.2     | UNO R4  | Adafruit_BNO08x      | ✅       | ✅     | ❌         | ❌     |
+| 2.1     | UNO R4  | Adafruit_BNO08x      | ✅       | ✅     | ❌         | ❌     |
+| 2.0     | UNO R4  | Adafruit_BNO08x      | ✅       | ❌     | ❌         | ❌     |
+| 1.0     | UNO R4  | Adafruit_BNO08x      | ✅       | ❌     | ❌         | ❌     |
