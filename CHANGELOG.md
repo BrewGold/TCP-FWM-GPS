@@ -5,6 +5,20 @@ Todos los cambios notables en este proyecto están documentados aquí.
 El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [2.6.0] - 2026-10-08
+
+### ✨ Agregado
+
+- Archivo completo `RS232-RWM-GPS_V2-6.ino` para Arduino UNO R4 WiFi.
+- Comando BLE `freq <1-10>`: frecuencia compartida COM2/Ethernet guardada en EEPROM y recuperada al arrancar; 10 Hz por defecto si el valor no es válido.
+- Frecuencia guardada y periodo activo en `status`, `com2` y `help`.
+
+### 🔄 Modificado
+
+- W5500 pasa de cliente a servidor TCP en puerto 15919; conserva inicialización DHCP y acepta lectores sin datos de entrada.
+- Salida `$GPGGA` por COM2 y Ethernet; nombre BLE `FWD-GPS-Diag2`.
+- Conservada la lógica Rev.2.5 de GNSS, yaw, LEDs y HAS/fix, así como la calibración EEPROM.
+
 ## [2.5.0] - 2026-10-02
 
 ### ✨ Agregado

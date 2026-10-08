@@ -17,9 +17,9 @@ Proporcionar al Dynatest FWD una posición GNSS mejorada mediante:
 - **GNSS**: ArduSimple simpleRTK3B Budget (UM980) → Serial1 (D0/D1) @ 115200 bps
 - **MCU**: Arduino UNO R4 WiFi (Renesas RA4M1)
 - **IMU**: SparkFun ICM-20948 → I2C (0x69/0x68)
-- **Salida FWD (COM2)**: UART software TX-only en D2 @ 38400 bps ($GCGGA a 10 Hz)
-- **Ethernet**: Shield W5500 → servidor TCP 192.168.1.122:15919
-- **BLE**: servicio Nordic UART `FWD-GPS-Diag` para diagnóstico y comandos
+- **Salida FWD (COM2)**: UART software TX-only en D2 @ 38400 bps ($GPGGA a 1–10 Hz, configurable y persistente)
+- **Ethernet**: Shield W5500, Arduino servidor TCP en puerto 15919 (IP local por DHCP)
+- **BLE**: servicio Nordic UART `FWD-GPS-Diag2` para diagnóstico y comandos
 - **LEDs**: D5 (GNSS+IMU+HAS), D6 (Movimiento)
 
 Flujo principal:
@@ -30,8 +30,8 @@ Flujo principal:
 4. Detecta estado MOVING/AVERAGING/LOCKED mediante máquina de estados.
 5. En parada promedia coordenadas (15 s por defecto, media recortada 5%).
 6. Aplica offset antena-pistón (0.55 m, dirección yaw+270°).
-7. Emite $GCGGA corregida al FWD por D2 @ 38400 bps.
-8. Envía la misma trama por Ethernet a un servidor externo.
+7. Emite $GPGGA corregida al FWD por D2 @ 38400 bps.
+8. Envía la misma trama por Ethernet al PC conectado al servidor del Arduino.
 9. BLE ofrece diagnóstico periódico y comandos interactivos.
 10. LEDs reflejan GNSS, IMU, HAS y movimiento/bloqueo.
 
@@ -43,7 +43,7 @@ Flujo principal:
 
 ## Estructura del repositorio
 
-- `firmware/arduino/RS232-RWM-GPS_V2-5.ino`: versión actual de firmware.
+- `firmware/arduino/RS232-RWM-GPS_V2-6.ino`: versión actual de firmware (archivo completo).
 - `firmware/arduino/README.md`: detalle técnico del firmware.
 - `docs/functional-spec-v1.0.md`: especificación funcional completa.
 - `docs/system-architecture.md`: detalle de arquitectura y comunicaciones.
@@ -51,7 +51,14 @@ Flujo principal:
 
 ## Versiones
 
-### Rev.2.5 (Actual)
+### Rev.2.6 (Actual)
+
+- Servidor TCP W5500 en puerto 15919; el PC conecta a la IP local mostrada en el Monitor Serie.
+- `freq <1-10>` por BLE guarda en EEPROM la frecuencia compartida COM2/Ethernet (10 Hz por defecto).
+- `status`, `com2` y `help` muestran frecuencia guardada y periodo activo.
+- Salida `$GPGGA`, nombre BLE `FWD-GPS-Diag2`; lógica GNSS/IMU/LED/HAS conservada.
+
+### Rev.2.5
 
 **Cambios principales:**
 - ✅ Detección HAS desde el campo de calidad del GGA de entrada (fix 5 = HAS activo)
@@ -102,9 +109,9 @@ Flujo principal:
 | **400 ms parpadeo** | Promediando posición |
 | **ON** | Posición bloqueada |
 
-## Diagnóstico BLE (Rev.2.5)
+## Diagnóstico BLE (Rev.2.6)
 
-- **Nombre**: `FWD-GPS-Diag`
+- **Nombre**: `FWD-GPS-Diag2`
 - **Servicio**: Nordic UART Service (`6E400001-B5A3-F393-E0A9-E50E24DCCA9E`)
 - **RX (escribir comandos)**: `6E400002-...`
 - **TX (notificaciones)**: `6E400003-...`
@@ -117,6 +124,7 @@ Flujo principal:
 | `status` | Estado general completo (incluye precisión estimada) |
 | `imu` | Datos del ICM-20948 y calibración |
 | `com2` | Estado y contadores de la salida COM2 |
+| `freq <1-10>` | Guarda la frecuencia COM2/Ethernet en EEPROM; persiste tras reiniciar |
 | `magcal start` | Inicia calibración del magnetómetro |
 | `magcal stop` | Finaliza y guarda calibración en EEPROM |
 | `magcal reset` | Borra la calibración |
@@ -124,6 +132,8 @@ Flujo principal:
 | `help` | Ayuda |
 
 Además, cada 5 s se envía un bloque `[DIAG]` con GNSS, fix, HAS, HDOP, precisión estimada, estado, IMU y contadores COM2.
+
+Para leer Ethernet, conecta un cliente TCP/Raw (por ejemplo PuTTY) a la **IP local del Arduino** y puerto **15919**. No hay IP de destino fija ni servidor que iniciar en el PC. Consulta [la guía de firmware](firmware/arduino/README.md) para compilación y validación.
 
 ## Precisión estimada
 
