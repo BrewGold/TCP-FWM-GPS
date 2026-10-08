@@ -2746,9 +2746,17 @@ void processBLECommand(const char* commandInput) {
       value < OUTPUT_FREQ_HZ_MIN ||
       value > OUTPUT_FREQ_HZ_MAX
     ) {
-      sendBLEText(
-        "ERROR: usa freq 1..10 (Hz)\r\n"
+      char errorText[64];
+
+      snprintf(
+        errorText,
+        sizeof(errorText),
+        "ERROR: usa freq %d..%d (Hz)\r\n",
+        OUTPUT_FREQ_HZ_MIN,
+        OUTPUT_FREQ_HZ_MAX
       );
+
+      sendBLEText(errorText);
 
       return;
     }
