@@ -5,7 +5,7 @@
   FUNCIONES:
   - GNSS UM980 conectado a Serial1, D0/D1, 115200 baudios.
   - COM2 TX por D2 mediante UART software directa, 38400 baudios.
-  - Salida NMEA $GCGGA a 10 Hz.
+  - Salida NMEA $GCGGA a 10 Hz por defecto, ajustable por BLE.
   - ICM-20948 por I2C.
   - Corrección de posición mediante yaw y offset de antena.
   - Promedio y bloqueo de posición con el vehículo parado.
@@ -31,6 +31,7 @@
     status
     imu
     com2
+    freq <1-10>
     help
     magcal start
     magcal stop
@@ -52,6 +53,7 @@
 #include <ArduinoBLE.h>
 #include <math.h>
 #include <string.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <stdarg.h>
 #include <ctype.h>
@@ -2514,6 +2516,9 @@ void sendBLEHelp() {
     "com2\r\n"
     "  Estado y contadores COM2.\r\n"
     "\r\n"
+    "freq <1-10>\r\n"
+    "  Salida COM2/Ethernet en Hz.\r\n"
+    "\r\n"
     "magcal start\r\n"
     "  Inicia calibracion.\r\n"
     "\r\n"
@@ -2597,6 +2602,43 @@ void processBLECommand(const char* commandInput) {
 
   if (strcmp(start, "com2") == 0) {
     sendBLECOM2();
+    return;
+  }
+
+  if (
+    strncmp(start, "freq", 4) == 0 &&
+    (start[4] == '\0' || isspace((unsigned char)start[4]))
+  ) {
+    char* endPointer = nullptr;
+    long frequency = strtol(start + 4, &endPointer, 10);
+
+    if (
+      endPointer == start + 4 ||
+      *endPointer != '\0' ||
+      frequency < 1 ||
+      frequency > 10
+    ) {
+      sendBLEText(
+        "ERROR: usa freq 1..10 Hz (entero)\r\n"
+      );
+
+      return;
+    }
+
+    OUTPUT_PERIOD_MS_VAR = 1000UL / (uint32_t)frequency;
+
+    char response[120];
+
+    snprintf(
+      response,
+      sizeof(response),
+      "OK: freq=%ld Hz (%lu ms), COM2/Ethernet\r\n",
+      frequency,
+      (unsigned long)OUTPUT_PERIOD_MS_VAR
+    );
+
+    sendBLEText(response);
+
     return;
   }
 

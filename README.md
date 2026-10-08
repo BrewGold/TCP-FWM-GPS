@@ -117,6 +117,7 @@ Flujo principal:
 | `status` | Estado general completo (incluye precisión estimada) |
 | `imu` | Datos del ICM-20948 y calibración |
 | `com2` | Estado y contadores de la salida COM2 |
+| `freq <1-10>` | Ajusta la salida GCGGA de COM2 y Ethernet (Hz enteros; 10 Hz por defecto, no persistente) |
 | `magcal start` | Inicia calibración del magnetómetro |
 | `magcal stop` | Finaliza y guarda calibración en EEPROM |
 | `magcal reset` | Borra la calibración |
