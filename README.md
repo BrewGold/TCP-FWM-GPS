@@ -121,6 +121,8 @@ Flujo principal:
 | `magcal stop` | Finaliza y guarda calibración en EEPROM |
 | `magcal reset` | Borra la calibración |
 | `yawoff <-180..180>` | Ajuste de montaje del yaw |
+| `freq` | Muestra la frecuencia actual de salida GGA |
+| `freq <1-10>` | Cambia la frecuencia de salida GGA/COM2 (Hz, no se guarda en EEPROM) |
 | `help` | Ayuda |
 
 Además, cada 5 s se envía un bloque `[DIAG]` con GNSS, fix, HAS, HDOP, precisión estimada, estado, IMU y contadores COM2.

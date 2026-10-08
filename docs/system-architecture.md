@@ -66,7 +66,7 @@ Galileo HAS (E6-B, satélite)
 ### 3.5 Arduino ↔ BLE
 
 - Nordic UART Service, nombre `FWD-GPS-Diag`
-- RX: comandos (`status`, `imu`, `com2`, `magcal start/stop/reset`, `yawoff`, `help`)
+- RX: comandos (`status`, `imu`, `com2`, `magcal start/stop/reset`, `yawoff`, `freq`, `help`)
 - TX: respuestas + diagnóstico periódico `[DIAG]` cada 5 s (incluye HDOP y precisión estimada)
 - Chunks de 20 bytes; comandos aceptados con o sin CR/LF (compatible MIT App Inventor)
 

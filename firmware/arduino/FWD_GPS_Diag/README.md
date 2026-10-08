@@ -26,6 +26,7 @@ La app permite:
 - `magcal stop`
 - `magcal reset`
 - `yawoff <valor>`
+- `freq` / `freq <1-10>`
 - `help`
 
 ## Archivo principal

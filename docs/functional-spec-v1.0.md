@@ -57,7 +57,7 @@ Funciones:
 ### Diagnóstico BLE
 
 - Nombre: `FWD-GPS-Diag`, servicio Nordic UART Service
-- Comandos: `status`, `imu`, `com2`, `magcal start/stop/reset`, `yawoff`, `help`
+- Comandos: `status`, `imu`, `com2`, `magcal start/stop/reset`, `yawoff`, `freq`, `help`
 - Diagnóstico periódico cada 5 s con precisión estimada (UERE × HDOP)
 
 ## Comunicaciones
