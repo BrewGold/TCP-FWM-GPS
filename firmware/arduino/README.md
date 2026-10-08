@@ -4,7 +4,7 @@ Este directorio contiene la implementación funcional del firmware para el Ardui
 
 ## Versión actual
 
-- `RS232-RWM-GPS_V2-5.ino` — **Rev.2.5**
+- `RS232-RWM-GPS_V2-6.ino` — **Rev.2.6**
 
 La versión actual incluye:
 
@@ -31,7 +31,7 @@ La versión actual incluye:
 ### UART salida FWD (Dynatest)
 - **Puerto**: UART software TX-only en D2 (bit-banging con `noInterrupts()`)
 - **Baud**: `38400`
-- **Formato**: `$GCGGA` únicamente
+- **Formato**: `$GPGGA` únicamente
 - **Periodo**: `100 ms` (10 Hz)
 
 ### IMU / Magnetómetro
@@ -70,7 +70,7 @@ La versión actual incluye:
 - `LOCKED → MOVING`
   - velocidad > 0.30 m/s, o alejamiento > 1.0 m del punto bloqueado
 
-### Detección de solución (Rev.2.5)
+### Detección de solución (Rev.2.6)
 
 El tipo de solución se determina por el campo de calidad del GGA de entrada:
 
@@ -111,7 +111,7 @@ Valores por defecto:
 
 El firmware genera y transmite siempre una trama tipo:
 
-- `$GCGGA,...*CS`
+- `$GPGGA,...*CS`
 
 Con fix quality de salida según el estado:
 
@@ -130,7 +130,7 @@ Con fix quality de salida según el estado:
 5. Actualiza la máquina de estados (`MOVING`, `AVERAGING`, `LOCKED`).
 6. En `AVERAGING` acumula lat/lon/alt/yaw y calcula promedio recortado.
 7. En `LOCKED` transmite la posición corregida; si no hay bloqueo, transmite instantánea con offset si hay yaw.
-8. Emite `$GCGGA` por D2 hacia el Dynatest a 10 Hz.
+8. Emite `$GPGGA` por D2 hacia el Dynatest a 10 Hz.
 9. Envía la misma trama por Ethernet.
 10. Publica diagnóstico por BLE cada 5 s y atiende comandos interactivos.
 
@@ -144,6 +144,7 @@ Con fix quality de salida según el estado:
 status             Estado general completo (incluye precisión estimada)
 imu                Datos del ICM-20948 y calibración
 com2               Estado y contadores COM2
+freq <1-10>        Cambia frecuencia compartida COM2/Ethernet (Hz)
 magcal start       Inicia calibración del magnetómetro
 magcal stop        Finaliza, valida y guarda en EEPROM
 magcal reset       Borra la calibración
@@ -186,7 +187,7 @@ COM2 frames=1250 bytes=103750
 3. Conectar desde Android (Serial Bluetooth Terminal / nRF Connect / app propia) y activar notificaciones en TX.
 4. Enviar `status` y verificar GNSS, fix de entrada, HAS y precisión estimada.
 5. Confirmar LED1 fijo solo con fix 5 (HAS) y parpadeo con fix 1.
-6. Confirmar `$GCGGA` en salida FWD por D2 a 10 Hz.
+6. Confirmar `$GPGGA` en salida FWD por D2 a 10 Hz.
 7. Validar calibración con `magcal start/stop` e `imu`.
 8. Comprobar la conexión Ethernet al servidor externo.
 
@@ -214,7 +215,7 @@ SAVECONFIG
 
 ## 9) Archivos relevantes
 
-- `RS232-RWM-GPS_V2-5.ino` — firmware actual de referencia
+- `RS232-RWM-GPS_V2-6.ino` — firmware actual de referencia
 - `RS232-RWM-GPS_V2-4.ino` — revisión anterior (BLE, ICM-20948)
 - `RS232-FMW-GPS_V-2_2.ino` / `V-2_1` / `V-2_0` / `V-1_0` — revisiones históricas
 - `../../README.md` — documentación general del proyecto
@@ -224,6 +225,7 @@ SAVECONFIG
 
 ## 10) Versiones
 
+- **Rev.2.6**: salida `$GPGGA` compartida COM2/Ethernet y frecuencia configurable por BLE
 - **Rev.2.5**: HAS por fix 5 en GGA, LED1 fijo solo con HAS, precisión estimada por HDOP en BLE
 - **Rev.2.4**: BLE (Nordic UART), ICM-20948, calibración magnetómetro, COM2 UART software, sin WiFi
 - **Rev.2.2**: separación `freq` / `diag` en terminal TCP

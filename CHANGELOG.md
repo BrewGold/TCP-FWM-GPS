@@ -5,6 +5,21 @@ Todos los cambios notables en este proyecto están documentados aquí.
 El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [2.6.0] - 2026-10-08
+
+### ✨ Agregado
+
+- Comando BLE `freq <1-10>` para cambiar la frecuencia de salida compartida COM2/Ethernet
+  - Valida el rango y confirma la frecuencia y el periodo configurados
+
+### 🔄 Modificado
+
+- La salida NMEA compartida por COM2 y Ethernet cambia el prefijo de `$GCGGA` a `$GPGGA`
+
+### 📝 Documentación
+
+- README principal y README de firmware actualizados a Rev.2.6
+
 ## [2.5.0] - 2026-10-02
 
 ### ✨ Agregado

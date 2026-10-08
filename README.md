@@ -17,7 +17,7 @@ Proporcionar al Dynatest FWD una posición GNSS mejorada mediante:
 - **GNSS**: ArduSimple simpleRTK3B Budget (UM980) → Serial1 (D0/D1) @ 115200 bps
 - **MCU**: Arduino UNO R4 WiFi (Renesas RA4M1)
 - **IMU**: SparkFun ICM-20948 → I2C (0x69/0x68)
-- **Salida FWD (COM2)**: UART software TX-only en D2 @ 38400 bps ($GCGGA a 10 Hz)
+- **Salida FWD (COM2)**: UART software TX-only en D2 @ 38400 bps ($GPGGA a 10 Hz)
 - **Ethernet**: Shield W5500 → servidor TCP 192.168.1.122:15919
 - **BLE**: servicio Nordic UART `FWD-GPS-Diag` para diagnóstico y comandos
 - **LEDs**: D5 (GNSS+IMU+HAS), D6 (Movimiento)
@@ -30,7 +30,7 @@ Flujo principal:
 4. Detecta estado MOVING/AVERAGING/LOCKED mediante máquina de estados.
 5. En parada promedia coordenadas (15 s por defecto, media recortada 5%).
 6. Aplica offset antena-pistón (0.55 m, dirección yaw+270°).
-7. Emite $GCGGA corregida al FWD por D2 @ 38400 bps.
+7. Emite $GPGGA corregida al FWD por D2 @ 38400 bps.
 8. Envía la misma trama por Ethernet a un servidor externo.
 9. BLE ofrece diagnóstico periódico y comandos interactivos.
 10. LEDs reflejan GNSS, IMU, HAS y movimiento/bloqueo.
@@ -43,7 +43,7 @@ Flujo principal:
 
 ## Estructura del repositorio
 
-- `firmware/arduino/RS232-RWM-GPS_V2-5.ino`: versión actual de firmware.
+- `firmware/arduino/RS232-RWM-GPS_V2-6.ino`: versión actual de firmware.
 - `firmware/arduino/README.md`: detalle técnico del firmware.
 - `docs/functional-spec-v1.0.md`: especificación funcional completa.
 - `docs/system-architecture.md`: detalle de arquitectura y comunicaciones.
@@ -51,13 +51,19 @@ Flujo principal:
 
 ## Versiones
 
-### Rev.2.5 (Actual)
+### Rev.2.6 (Actual)
 
 **Cambios principales:**
+- ✅ Salida compartida COM2/Ethernet con prefijo `$GPGGA`
+- ✅ Comando BLE `freq <1-10>` para cambiar la frecuencia común de salida
 - ✅ Detección HAS desde el campo de calidad del GGA de entrada (fix 5 = HAS activo)
 - ✅ LED1 solo queda fijo con HAS activo; con fix 1 parpadea (nunca fijo)
 - ✅ Precisión horizontal estimada según HDOP y tipo de fix (UERE × HDOP) en BLE `status` y diagnóstico periódico
 - ✅ Eliminado el parser `$PUBX,00` (el UM980 no lo emite)
+
+### Rev.2.5
+
+- Detección HAS por fix 5, estado LED1 y precisión estimada en BLE
 
 ### Rev.2.4
 
@@ -83,7 +89,7 @@ Flujo principal:
 
 - Base funcional: máquina de estados, promedio de coordenadas, salida FWD
 
-## LEDs (Rev.2.5)
+## LEDs (Rev.2.6)
 
 ### LED1 (D5) - GNSS + IMU + HAS
 
@@ -102,7 +108,7 @@ Flujo principal:
 | **400 ms parpadeo** | Promediando posición |
 | **ON** | Posición bloqueada |
 
-## Diagnóstico BLE (Rev.2.5)
+## Diagnóstico BLE (Rev.2.6)
 
 - **Nombre**: `FWD-GPS-Diag`
 - **Servicio**: Nordic UART Service (`6E400001-B5A3-F393-E0A9-E50E24DCCA9E`)
@@ -117,6 +123,7 @@ Flujo principal:
 | `status` | Estado general completo (incluye precisión estimada) |
 | `imu` | Datos del ICM-20948 y calibración |
 | `com2` | Estado y contadores de la salida COM2 |
+| `freq <1-10>` | Cambia la frecuencia compartida de salida COM2/Ethernet (Hz) |
 | `magcal start` | Inicia calibración del magnetómetro |
 | `magcal stop` | Finaliza y guarda calibración en EEPROM |
 | `magcal reset` | Borra la calibración |
