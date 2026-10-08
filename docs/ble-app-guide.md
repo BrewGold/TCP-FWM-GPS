@@ -33,6 +33,8 @@ El firmware envía los textos troceados en fragmentos de 20 bytes: la app debe *
 | `magcal stop` | Finaliza, valida y guarda la calibración en EEPROM |
 | `magcal reset` | Borra la calibración |
 | `yawoff <-180..180>` | Ajuste del offset de montaje del yaw |
+| `freq` | Muestra la frecuencia actual de salida GGA |
+| `freq <1-10>` | Cambia la frecuencia de salida GGA/COM2 en Hz (no se guarda en EEPROM; vuelve a 10 Hz al reiniciar) |
 | `help` | Lista de comandos |
 
 Además, cada 5 s el equipo envía automáticamente un bloque `[DIAG]` con el estado resumido (requiere notificaciones activas).

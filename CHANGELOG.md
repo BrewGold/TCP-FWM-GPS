@@ -5,6 +5,16 @@ Todos los cambios notables en este proyecto están documentados aquí.
 El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [Unreleased]
+
+### ✨ Agregado
+
+- **Comando BLE `freq`** (Rev.2.5)
+  - `freq` muestra la frecuencia actual de salida GGA/COM2
+  - `freq <1-10>` cambia la frecuencia de salida en Hz (reutiliza `OUTPUT_PERIOD_MS_VAR`)
+  - Valor fuera de rango o no entero responde `ERROR: usa freq 1..10 (Hz)`
+  - No se guarda en EEPROM: tras reiniciar vuelve a 10 Hz
+
 ## [2.5.0] - 2026-10-02
 
 ### ✨ Agregado

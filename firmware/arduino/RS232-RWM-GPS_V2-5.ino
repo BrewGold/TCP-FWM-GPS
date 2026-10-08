@@ -5,7 +5,7 @@
   FUNCIONES:
   - GNSS UM980 conectado a Serial1, D0/D1, 115200 baudios.
   - COM2 TX por D2 mediante UART software directa, 38400 baudios.
-  - Salida NMEA $GCGGA a 10 Hz.
+  - Salida NMEA $GCGGA a 10 Hz (ajustable 1..10 Hz por BLE: freq).
   - ICM-20948 por I2C.
   - Corrección de posición mediante yaw y offset de antena.
   - Promedio y bloqueo de posición con el vehículo parado.
@@ -36,6 +36,8 @@
     magcal stop
     magcal reset
     yawoff <-180..180>
+    freq
+    freq <1..10>
 
   LIBRERÍAS:
   - SparkFun ICM-20948 Arduino Library
@@ -96,6 +98,8 @@
 #define IMU_TIMEOUT_MS              5000
 
 #define OUTPUT_PERIOD_MS_DEFAULT    100
+#define OUTPUT_FREQ_HZ_MIN          1
+#define OUTPUT_FREQ_HZ_MAX          10
 #define AVERAGING_WINDOW_MS_DEFAULT 15000
 #define RELOCK_DISTANCE_M           1.0
 #define MAX_SAMPLES                 160
@@ -2526,6 +2530,10 @@ void sendBLEHelp() {
     "yawoff <grados>\r\n"
     "  Ajuste montaje -180..180.\r\n"
     "\r\n"
+    "freq <1-10>\r\n"
+    "  Salida GGA en Hz.\r\n"
+    "  freq: muestra valor.\r\n"
+    "\r\n"
     "help\r\n"
     "  Muestra esta ayuda.\r\n"
     "============================\r\n";
@@ -2703,6 +2711,67 @@ void processBLECommand(const char* commandInput) {
       sizeof(response),
       "OK: yawoff=%.1f grados\r\n",
       YAW_MOUNT_OFFSET_DEG_VAR
+    );
+
+    sendBLEText(response);
+
+    return;
+  }
+
+  if (strcmp(start, "freq") == 0) {
+    char response[80];
+
+    snprintf(
+      response,
+      sizeof(response),
+      "Salida GGA: %d Hz (%u ms)\r\n",
+      1000 / OUTPUT_PERIOD_MS_VAR,
+      OUTPUT_PERIOD_MS_VAR
+    );
+
+    sendBLEText(response);
+
+    return;
+  }
+
+  if (strncmp(start, "freq ", 5) == 0) {
+    char* endPointer = nullptr;
+
+    long value =
+      strtol(start + 5, &endPointer, 10);
+
+    if (
+      endPointer == start + 5 ||
+      *endPointer != '\0' ||
+      value < OUTPUT_FREQ_HZ_MIN ||
+      value > OUTPUT_FREQ_HZ_MAX
+    ) {
+      char errorText[64];
+
+      snprintf(
+        errorText,
+        sizeof(errorText),
+        "ERROR: usa freq %d..%d (Hz)\r\n",
+        OUTPUT_FREQ_HZ_MIN,
+        OUTPUT_FREQ_HZ_MAX
+      );
+
+      sendBLEText(errorText);
+
+      return;
+    }
+
+    OUTPUT_PERIOD_MS_VAR =
+      (uint16_t)(1000 / value);
+
+    char response[80];
+
+    snprintf(
+      response,
+      sizeof(response),
+      "OK: salida GGA %ld Hz (%u ms)\r\n",
+      value,
+      OUTPUT_PERIOD_MS_VAR
     );
 
     sendBLEText(response);

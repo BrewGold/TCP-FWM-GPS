@@ -148,6 +148,8 @@ magcal start       Inicia calibración del magnetómetro
 magcal stop        Finaliza, valida y guarda en EEPROM
 magcal reset       Borra la calibración
 yawoff <grados>    Ajuste montaje yaw (-180..180)
+freq               Muestra frecuencia de salida GGA
+freq <1-10>        Cambia frecuencia de salida GGA (Hz)
 help               Lista de comandos
 ```
 
