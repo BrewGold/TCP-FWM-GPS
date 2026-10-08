@@ -29,6 +29,7 @@ El firmware envía los textos troceados en fragmentos de 20 bytes: la app debe *
 | `status` | Estado general completo (GNSS, fix, HAS, HDOP, precisión estimada, IMU, COM2, Ethernet) |
 | `imu` | Datos del ICM-20948 (ACC/MAG/GYRO, roll/pitch, rumbos, calibración) |
 | `com2` | Estado y contadores de la salida COM2 |
+| `freq <1-10>` | Ajusta la frecuencia GCGGA compartida por COM2 y Ethernet (Hz enteros, solo Rev.2.5 actualizada) |
 | `magcal start` | Inicia calibración del magnetómetro |
 | `magcal stop` | Finaliza, valida y guarda la calibración en EEPROM |
 | `magcal reset` | Borra la calibración |
@@ -36,6 +37,10 @@ El firmware envía los textos troceados en fragmentos de 20 bytes: la app debe *
 | `help` | Lista de comandos |
 
 Además, cada 5 s el equipo envía automáticamente un bloque `[DIAG]` con el estado resumido (requiere notificaciones activas).
+
+Por ejemplo, enviar `freq 5` devuelve `OK: freq=5 Hz (200 ms), COM2/Ethernet`.
+Los valores inválidos devuelven `ERROR` y conservan el período anterior.
+El ajuste vuelve a 10 Hz al reiniciar y no cambia la frecuencia del GNSS ni del diagnóstico BLE.
 
 ## 4. Diseño de pantalla sugerido (Designer)
 
