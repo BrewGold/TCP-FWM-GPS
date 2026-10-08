@@ -215,8 +215,9 @@ SAVECONFIG
 ## 9) Archivos relevantes
 
 - `RS232-RWM-GPS_V2-5.ino` — firmware actual de referencia
-- `RS232-RWM-GPS_V2-4.ino` — revisión anterior (BLE, ICM-20948)
-- `RS232-FMW-GPS_V-2_2.ino` / `V-2_1` / `V-2_0` / `V-1_0` — revisiones históricas
+- `legacy/RS232-RWM-GPS_V2-4.ino` — revisión anterior (BLE, ICM-20948)
+- `legacy/RS232-FMW-GPS_V-2_2.ino`, `legacy/RS232-FMW-GPS_V-2_1.ino`, `legacy/RS232-FMW-GPS_V-2_0.ino` y `legacy/RS232-FMW-GPS_V-1_0.ino` — revisiones históricas
+- `legacy/rs232_fwd_gps_final_v_0_99.ino` — revisión histórica Rev.0.99
 - `../../README.md` — documentación general del proyecto
 - `../../CHANGELOG.md` — historial de versiones
 

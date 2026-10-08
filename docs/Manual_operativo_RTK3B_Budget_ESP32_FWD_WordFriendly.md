@@ -4,7 +4,7 @@ simpleRTK3B Budget + UM980 + Arduino UNO R4 WiFi + FWD GGA + Ethernet + WiFi TCP
 Versión: 2.2
 Fecha: 28/09/2026
 Preparado para: operación técnica, pruebas de campo y validación
-Firmware de referencia: firmware/arduino/RS232-FMW-GPS_V-2_2.ino
+Firmware de referencia: firmware/arduino/legacy/RS232-FMW-GPS_V-2_2.ino
 
 ====================================================
 
@@ -280,7 +280,7 @@ Guardar la respuesta de `UNILOGLIST`. La respuesta puede variar según el firmwa
 Firmware de referencia:
 
 ```text
-firmware/arduino/RS232-FMW-GPS_V-2_2.ino
+firmware/arduino/legacy/RS232-FMW-GPS_V-2_2.ino
 ```
 
 Antes de cargar:
@@ -542,7 +542,7 @@ La salida WiFi TCP no sustituye a la salida GGA profesional del FWD. Es un canal
 5. Activar PPPNAVA y BESTNAVA en COM1 y COM3 si se va a probar HAS.
 6. Limpiar COM2 para evitar mensajes propios del UM980.
 7. Activar HAS según la configuración compatible con el firmware instalado.
-8. Cargar `RS232-FMW-GPS_V-2_2.ino` en el Arduino UNO R4 WiFi.
+8. Cargar `legacy/RS232-FMW-GPS_V-2_2.ino` en el Arduino UNO R4 WiFi.
 9. Confirmar la prueba de LEDs de arranque.
 10. Confirmar que aparece el AP `FWD-GPS-Diag`.
 11. Conectar al TCP `192.168.4.1:15920`.
