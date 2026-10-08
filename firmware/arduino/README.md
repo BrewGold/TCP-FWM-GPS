@@ -4,7 +4,9 @@ Este directorio contiene la implementación funcional del firmware para el Ardui
 
 ## Versión actual
 
-- `RS232-RWM-GPS_V2-5.ino` — **Rev.2.5**
+- `RS232-RWM-GPS_V2-6.ino` — **Rev.2.6**, archivo completo independiente
+
+Para compilar en Arduino IDE 2.x, abre este archivo en una carpeta llamada `RS232-RWM-GPS_V2-6` (acepta la propuesta del IDE de crearla), selecciona **Arduino UNO R4 WiFi** e instala `SparkFun ICM-20948 Arduino Library`, `ArduinoBLE` y `Ethernet` **2.0.0 o posterior** (`EthernetServer.accept()`). `Wire` y `EEPROM` pertenecen al núcleo de la placa. Mantén las revisiones históricas fuera de la carpeta del sketch.
 
 La versión actual incluye:
 
@@ -14,9 +16,10 @@ La versión actual incluye:
 - Detección HAS por fix 5 en el GGA de entrada
 - Precisión horizontal estimada según HDOP y tipo de fix
 - LEDs D5/D6 con estados GNSS + IMU + HAS + movimiento
-- Ethernet W5500 a 192.168.1.122:15919
+- Ethernet W5500 como servidor TCP en puerto 15919, IP local por DHCP
 - Diagnóstico y control por Bluetooth Low Energy (Nordic UART Service)
 - Calibración del magnetómetro por BLE con guardado en EEPROM
+- Frecuencia COM2/Ethernet configurable por BLE (`freq <1-10>`) y persistente en EEPROM
 
 ---
 
@@ -31,8 +34,8 @@ La versión actual incluye:
 ### UART salida FWD (Dynatest)
 - **Puerto**: UART software TX-only en D2 (bit-banging con `noInterrupts()`)
 - **Baud**: `38400`
-- **Formato**: `$GCGGA` únicamente
-- **Periodo**: `100 ms` (10 Hz)
+- **Formato**: `$GPGGA` únicamente
+- **Periodo**: `1000 / frecuencia` ms (división entera); 100 ms / 10 Hz por defecto
 
 ### IMU / Magnetómetro
 - **Sensor**: ICM-20948 (SparkFun)
@@ -47,10 +50,13 @@ La versión actual incluye:
 
 ### Ethernet
 - **Shield**: W5500 (CS en D10, SD CS en D4 deshabilitado)
-- **Destino**: `192.168.1.122:15919` (DHCP)
+- **Servidor**: Arduino escucha en `15919`; su IP local se obtiene por DHCP y se muestra como `[ETH] IP local: ...`
+- **PC**: conectar un lector TCP/Raw, por ejemplo PuTTY, a esa IP y puerto. No se necesita enviar comandos ni iniciar un servidor en el PC.
+- **Conexiones**: un lector activo; al desconectar se acepta uno nuevo. Se mantiene la concesión DHCP y se reanuda el servidor después de recuperar el enlace. Si DHCP falla al arrancar, corrige la red y reinicia el Arduino.
+- **Red**: se necesita DHCP; `192.168.1.22` solo es la dirección del Arduino si el router se la asigna. No existe una IP remota de destino.
 
 ### Bluetooth Low Energy
-- **Nombre**: `FWD-GPS-Diag`
+- **Nombre**: `FWD-GPS-Diag2`
 - **Servicio**: Nordic UART Service
   - Servicio: `6E400001-B5A3-F393-E0A9-E50E24DCCA9E`
   - RX (comandos): `6E400002-B5A3-F393-E0A9-E50E24DCCA9E`
@@ -95,6 +101,7 @@ El tipo de solución se determina por el campo de calidad del GGA de entrada:
 Valores por defecto:
 
 - `OUTPUT_PERIOD_MS = 100` → 10 Hz
+- `freq <1-10>` modifica el periodo compartido COM2/Ethernet y guarda los Hz en EEPROM, después del bloque de calibración. Al arrancar, un byte fuera de 1–10 se sustituye por 10 Hz y se guarda. Cambiar la frecuencia no cambia el diagnóstico BLE de 5 s ni la tasa de entrada GNSS.
 - `OFFSET_M = 0.55`
 - `DECLINATION_DEG = 1.0`
 - `STOP_CONFIRMATION_MS = 2000`
@@ -111,7 +118,7 @@ Valores por defecto:
 
 El firmware genera y transmite siempre una trama tipo:
 
-- `$GCGGA,...*CS`
+- `$GPGGA,...*CS`
 
 Con fix quality de salida según el estado:
 
@@ -130,8 +137,8 @@ Con fix quality de salida según el estado:
 5. Actualiza la máquina de estados (`MOVING`, `AVERAGING`, `LOCKED`).
 6. En `AVERAGING` acumula lat/lon/alt/yaw y calcula promedio recortado.
 7. En `LOCKED` transmite la posición corregida; si no hay bloqueo, transmite instantánea con offset si hay yaw.
-8. Emite `$GCGGA` por D2 hacia el Dynatest a 10 Hz.
-9. Envía la misma trama por Ethernet.
+8. Emite `$GPGGA` por D2 hacia el Dynatest a la frecuencia guardada.
+9. Envía la misma trama al cliente Ethernet conectado, con el mismo periodo.
 10. Publica diagnóstico por BLE cada 5 s y atiende comandos interactivos.
 
 ---
@@ -144,12 +151,15 @@ Con fix quality de salida según el estado:
 status             Estado general completo (incluye precisión estimada)
 imu                Datos del ICM-20948 y calibración
 com2               Estado y contadores COM2
+freq <1-10>        Guarda frecuencia COM2/Ethernet en EEPROM (Hz)
 magcal start       Inicia calibración del magnetómetro
 magcal stop        Finaliza, valida y guarda en EEPROM
 magcal reset       Borra la calibración
 yawoff <grados>    Ajuste montaje yaw (-180..180)
 help               Lista de comandos
 ```
+
+`status`, `com2` y `help` muestran la frecuencia guardada y el periodo activo en ms. Por ejemplo, `freq 3` confirma 3 Hz y 333 ms. Valores como `freq 0`, `freq 11`, `freq 2.5` o `freq abc` devuelven un error sin modificar el valor guardado.
 
 ### Calibración del magnetómetro
 
@@ -182,13 +192,17 @@ COM2 frames=1250 bytes=103750
 ## 7) Checklist rápido de validación
 
 1. Conectar Arduino con alimentación externa adecuada.
-2. Confirmar que el dispositivo BLE `FWD-GPS-Diag` aparece al escanear.
+2. Confirmar que el dispositivo BLE `FWD-GPS-Diag2` aparece al escanear.
 3. Conectar desde Android (Serial Bluetooth Terminal / nRF Connect / app propia) y activar notificaciones en TX.
 4. Enviar `status` y verificar GNSS, fix de entrada, HAS y precisión estimada.
 5. Confirmar LED1 fijo solo con fix 5 (HAS) y parpadeo con fix 1.
-6. Confirmar `$GCGGA` en salida FWD por D2 a 10 Hz.
+6. Confirmar `$GPGGA` con checksum y CR/LF en salida FWD por D2 a 10 Hz inicialmente.
 7. Validar calibración con `magcal start/stop` e `imu`.
-8. Comprobar la conexión Ethernet al servidor externo.
+8. Conectar PuTTY en modo **Raw** a la IP `[ETH] IP local` del Arduino, puerto 15919, sin enviar datos; confirmar las mismas tramas `$GPGGA` que en COM2. Desconectar y reconectar el lector.
+9. Enviar `freq 1`, `freq 3` y `freq 10`: comprobar en `status`, `com2` y `help` los periodos 1000, 333 y 100 ms y medir ambas salidas. No deben cambiar los intervalos del diagnóstico BLE.
+10. Enviar `freq`, `freq 0`, `freq 11`, `freq -1`, `freq 2.5`, `freq abc` y `freq 5 extra`: comprobar error y ausencia de cambios. Probar también ` FREQ 5 `.
+11. Guardar `freq 3`, cortar alimentación y reiniciar: comprobar 3 Hz / 333 ms y que la calibración/yawoff siguen intactos. En EEPROM sin frecuencia válida, comprobar 10 Hz / 100 ms.
+12. Desconectar/reconectar el cable Ethernet: comprobar recuperación del servidor y continuidad de COM2. Sin GNSS válido, el servidor debe admitir conexión aunque no emita tramas.
 
 ---
 
@@ -214,7 +228,8 @@ SAVECONFIG
 
 ## 9) Archivos relevantes
 
-- `RS232-RWM-GPS_V2-5.ino` — firmware actual de referencia
+- `RS232-RWM-GPS_V2-6.ino` — firmware actual de referencia
+- `RS232-RWM-GPS_V2-5.ino` — base Rev.2.5 conservada sin cambios
 - `RS232-RWM-GPS_V2-4.ino` — revisión anterior (BLE, ICM-20948)
 - `RS232-FMW-GPS_V-2_2.ino` / `V-2_1` / `V-2_0` / `V-1_0` — revisiones históricas
 - `../../README.md` — documentación general del proyecto
@@ -224,6 +239,7 @@ SAVECONFIG
 
 ## 10) Versiones
 
+- **Rev.2.6**: servidor TCP :15919, `freq` persistente COM2/Ethernet, `$GPGGA`, BLE `FWD-GPS-Diag2`
 - **Rev.2.5**: HAS por fix 5 en GGA, LED1 fijo solo con HAS, precisión estimada por HDOP en BLE
 - **Rev.2.4**: BLE (Nordic UART), ICM-20948, calibración magnetómetro, COM2 UART software, sin WiFi
 - **Rev.2.2**: separación `freq` / `diag` en terminal TCP
