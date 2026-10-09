@@ -1267,16 +1267,25 @@ void resetMagCalibration() {
 
 bool probeI2C(uint8_t address) {
   Wire.beginTransmission(address);
+  uint8_t result = Wire.endTransmission();
 
-  return Wire.endTransmission() == 0;
+  Serial.print("[I2C] 0x");
+  if (address < 0x10) Serial.print('0');
+  Serial.print(address, HEX);
+  Serial.print(" endTransmission=");
+  Serial.println(result);
+
+  return result == 0;
 }
 
 bool initializeICM20948() {
   uint8_t address = 0;
+  bool primaryFound = probeI2C(ICM_ADDRESS_PRIMARY);
+  bool secondaryFound = probeI2C(ICM_ADDRESS_SECONDARY);
 
-  if (probeI2C(ICM_ADDRESS_PRIMARY)) {
+  if (primaryFound) {
     address = ICM_ADDRESS_PRIMARY;
-  } else if (probeI2C(ICM_ADDRESS_SECONDARY)) {
+  } else if (secondaryFound) {
     address = ICM_ADDRESS_SECONDARY;
   } else {
     Serial.println(
@@ -3087,6 +3096,9 @@ void setup() {
   Wire.setClock(I2C_CLOCK_HZ);
 
   loadMagCalibration();
+
+  Serial.println("[I2C] Sondeo inicial; Ethernet aún no inicializado");
+  Serial.flush();
 
   if (!initializeICM20948()) {
     Serial.println(
