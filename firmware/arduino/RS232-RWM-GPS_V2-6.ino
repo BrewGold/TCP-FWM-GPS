@@ -2775,27 +2775,25 @@ void readTCPCommands() {
   }
 }
 
-// ============================================================================
-// ============================================================================
 // TCP - DIAGNÓSTICO PERIÓDICO
 // ============================================================================
 
 void sendDiagPeriodicDiagnostic() {
   if (
-  !tcpDiagnosticEnabled ||
-  !diagClient ||
-  !diagClient.connected()
+    !tcpDiagnosticEnabled ||
+    !diagClient ||
+    !diagClient.connected()
   ) {
-  return;
+    return;
   }
 
   uint32_t now = millis();
 
   if (
-  now - lastTcpDiagnosticMs <
-  TCP_DIAGNOSTIC_PERIOD_MS
+    now - lastTcpDiagnosticMs <
+    TCP_DIAGNOSTIC_PERIOD_MS
   ) {
-  return;
+    return;
   }
 
   lastTcpDiagnosticMs = now;
