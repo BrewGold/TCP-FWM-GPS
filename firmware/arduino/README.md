@@ -4,9 +4,75 @@ Este directorio contiene la implementación funcional del firmware para el Ardui
 
 ## Versión actual
 
+- `RS232-RWM-GPS_V2-7.ino` — **Rev.2.7 TCP sin BLE**
+
+### Rev.2.7: COM2 sin bloqueo global de interrupciones
+
+Basada en la Rev.2.6 de doble servidor TCP de la [PR #21](https://github.com/BrewGold/TCP-FWM-GPS/pull/21)
+(commit `02573a8ab5e1353dddf0777ac1f01b5ef54b9b41`); esa revisión no estaba
+presente en esta rama. Las revisiones históricas no se modifican.
+
+- COM2 conserva **D2, 38400 bps, 8N1, `$GCGGA` y 10 Hz por defecto**.
+  Un timer GPT libre del RA4M1, gestionado por `FspTimer` del core oficial,
+  genera una interrupción por bit. Con PCLKD a 48 MHz y divisor 1 se usan
+  exactamente 1250 cuentas: periodo nominal **26.0417 µs**, sin error de
+  cuantización del baudrate. La ISR tiene prioridad 4 y solo actualiza D2
+  mediante escritura atómica de PCNTR3 y el estado TX; no usa SPI/I2C,
+  espera activa ni enmascaramiento global de interrupciones.
+- Se copia cada trama a un buffer de 240 bytes antes de publicarla a la ISR.
+  El `loop()` no espera a la transmisión. Cada bit de parada ocupa un periodo
+  completo. Los contadores de bytes/tramas y la fecha avanzan al finalizar
+  la transmisión; `com2` informa del timer, tamaño de trama en curso y descartes.
+  Si el buffer está ocupado o falla la inicialización, se descarta la trama
+  completa (nunca una trama parcial), sin recurrir al bit-banging bloqueante.
+  Incluso el buffer completo tarda 62.5 ms, menos que el periodo mínimo de
+  salida de 100 ms.
+- **Decisión de hardware:** D2 es P104 y su mux SCI solo ofrece RX, no TX.
+  Los TX expuestos D1, D7, D11, D13 y A4 comparten SCI2/SCI0 con Serial1
+  o requieren cambiar el cableado/pines usados. Se mantiene D2 y no se
+  ocupan timers PWM reservados ni AGT de `millis()`/`micros()`.
+  Véanse las APIs y el mux del [core oficial](https://github.com/arduino/ArduinoCore-renesas/tree/424e86eff92d37f72123c2b641dd8bbf06a38b47)
+  (`variants/UNOWIFIR4/pinmux.inc`, `cores/arduino/FspTimer.h`).
+- `Serial1` empieza después de las esperas de arranque (LEDs, IMU y DHCP).
+  Se drena GNSS antes y entre las tareas del `loop()`, y mediante `yield()`
+  durante las esperas cooperativas de las librerías. El parser se protege
+  contra reentrada y nunca se ejecuta desde una ISR. El core fija su buffer
+  UART en **512 bytes** (unos 44 ms a 115200 bps) sin API pública de ampliación;
+  no se modifica el core ni se añade un `#define` ineficaz.
+- El `loop()` ya no espera a COM2. Ethernet aún puede esperar por ACK/reintentos
+  TCP o cierre de clientes, e IMU puede usar `delay()` al reinicializar:
+  esas esperas llaman a `yield()` y mantienen atendido GNSS. Se comprueba
+  espacio TX antes de escribir y se desconectan clientes saturados, evitando
+  la espera ilimitada por espacio del socket. No se promete un `loop()`
+  totalmente no bloqueante ni se cambian los timeouts internos de Wire.
+- Se conservan HAS/fix 5, yaw/IMU, MOVING/AVERAGING/LOCKED, offset, LEDs D5/D6,
+  EEPROM y los servidores **NMEA TCP 15919 / diagnóstico TCP 15920**, con
+  `status`, `imu`, `com2`, `help`, `magcal start/stop/reset`, `yawoff`,
+  `freq <1..10>` y `diag on/off`. Rev.2.7 no usa BLE.
+
+**Arduino IDE 2.x:** instalar la plataforma oficial **Arduino UNO R4 Boards**
+y seleccionar **Arduino UNO R4 WiFi**. Abrir el `.ino` en una carpeta propia
+llamada `RS232-RWM-GPS_V2-7` (no agrupar las revisiones históricas en un único
+sketch). Instalar Ethernet (W5500) y SparkFun ICM-20948 Arduino Library;
+Wire, EEPROM y FspTimer vienen con el core. No hace falta SoftwareSerial
+ni una librería adicional de timers.
+
+**Validación en placa pendiente:** la lógica puede simularse en host, pero
+no reemplaza la compilación con el core instalado ni las mediciones de banco.
+Con analizador lógico en D2, decodificar 38400/8N1 y medir los intervalos de
+bit bajo carga simultánea GNSS, SPI, I2C y comandos TCP. Objetivo de aceptación:
+error/jitter de transición inferior a ±2% de un bit (±0.52 µs), sin bits
+omitidos, checksum `$GCGGA` correcto y decodificación continua en el Dynatest.
+El divisor exacto no garantiza ese jitter ni la precisión del oscilador HOCO.
+Revisar que no reaparezcan errores de checksum GGA/RMC ni falsos negativos
+W5500/ICM-20948, que `com2` no muestre descartes a 1/10 Hz, y probar clientes
+lentos, cable desconectado, reintento IMU y todos los comandos de diagnóstico.
+
+## Referencia histórica Rev.2.5 (BLE)
+
 - `RS232-RWM-GPS_V2-5.ino` — **Rev.2.5**
 
-La versión actual incluye:
+Esta revisión histórica incluye:
 
 - GNSS UM980 por Serial1 @ 115200 bps
 - Salida FWD (COM2) por D2 @ 38400 bps (UART software TX-only)
