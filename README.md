@@ -45,6 +45,7 @@ Flujo principal:
 ## Estructura del repositorio
 
 - `firmware/arduino/RS232-RWM-GPS_V3-0.ino`: versión actual de firmware (Metro M4).
+- `firmware/arduino/RS232-RWM-GPS_V2-9.ino`: puente temporal UNO R4, sin IMU/I2C.
 - `firmware/arduino/RS232-RWM-GPS_V2-8.ino`: última base UNO R4, conservada.
 - `firmware/arduino/README.md`: detalle técnico del firmware.
 - `docs/functional-spec-v1.0.md`: especificación funcional completa.
@@ -83,6 +84,26 @@ Flujo principal:
   `magcal start/stop/reset`, `yawoff`, `freq`, `diag on/off`.
 - Instalación, APIs verificadas y pruebas de banco pendientes:
   [README de firmware](firmware/arduino/README.md#rev30-metro-m4-y-com2-por-uart-hardware).
+
+### Rev.2.9 (Puente temporal, UNO R4 WiFi)
+
+- Basada en Rev.2.8; **no sustituye la revisión final recomendada Rev.3.0
+  para Metro M4**, que permanece sin cambios.
+- IMU/I2C deshabilitado intencionalmente ante el problema de detección y el
+  bug del core Renesas [#543](https://github.com/arduino/ArduinoCore-renesas/issues/543).
+  Sin inicialización, lecturas ni reintentos; yaw fijo ficticio `NAN`.
+  Diagnóstico: `IMU=OFF`, no `FAIL`; `imu` identifica los valores ficticios.
+  `magcal start/stop/reset` y `yawoff` siguen en ayuda, pero no aplican.
+- COM2 D2/GPT4 y TCP transmiten GNSS sin offset antena-pistón;
+  se conserva el promedio GNSS sin offset en `LOCKED` y la calidad de fix.
+  LED1 apagado sin GNSS válido, parpadeo de 200 ms con GNSS válido
+  (incluso con HAS); LED2 sin cambios.
+- Validar en campo NMEA TCP **15919** con hasta cuatro clientes simultáneos,
+  `$GCGGA` a la frecuencia configurada, y diagnóstico TCP **15920** con
+  `status`, `imu`, `com2`, `help`, `freq <1..10>` y `diag on/off`.
+  Usar la IP DHCP o el respaldo **192.168.1.22**; comprobar que no hay
+  mensajes de reintento IMU. Esta revisión no corrige ni garantiza la
+  detección del W5500: sigue siendo necesaria la prueba en placa.
 
 ### Rev.2.8 (Histórica)
 

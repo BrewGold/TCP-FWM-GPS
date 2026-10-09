@@ -33,6 +33,38 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
   El informe del issue afecta a I2C SCI y no prueba por sí solo la causa de
   todos los fallos en UNO R4.
 
+## [2.9.0] - 2026-10-09
+
+### ✨ Agregado
+
+- `RS232-RWM-GPS_V2-9.ino`, basada en Rev.2.8: **revisión puente temporal
+  para Arduino UNO R4 WiFi**, no sustituto de la revisión final recomendada
+  Rev.3.0 para Adafruit Metro M4. Ambas revisiones existentes se conservan.
+- Objetivo exclusivo: validar en campo NMEA TCP **15919** (hasta cuatro
+  clientes, `$GCGGA` a frecuencia configurable) y diagnóstico TCP **15920**
+  (`status`, `imu`, `com2`, `help`, `freq`, `diag on/off`) mientras se
+  completa la migración de placa.
+
+### 🔄 Modificado
+
+- IMU/I2C deshabilitado intencionalmente ante el problema de detección y
+  el bug del core Renesas [#543](https://github.com/arduino/ArduinoCore-renesas/issues/543).
+  Código de sensor/calibración excluido de compilación: sin inicialización,
+  sondeo, lectura, reintentos ni acceso a EEPROM.
+- `imuAvailable=false` permanente; yaw `NAN` y campos IMU ficticios fijos,
+  claramente identificados como **DESHABILITADO**, no fallo de hardware;
+  diagnóstico periódico **IMU=OFF**. Comandos `magcal start/stop/reset` y
+  `yawoff` conservados en ayuda, pero rechazados por modo puente.
+- Salida COM2/TCP GNSS sin offset antena-pistón; promedio sin offset en
+  LOCKED. Se mantienen GPT4/D2, parsing GNSS, estados, fix quality, TCP y
+  respaldo **192.168.1.22**. LED1 conserva el fallback de parpadeo 200 ms
+  con GNSS válido y sin IMU (incluso con HAS); LED2 sin cambios.
+
+### 📝 Documentación
+
+- Cabecera Rev.2.9 y notas de uso/validación TCP en ambos README.
+  Revisión conceptual sin Arduino CLI; compilación y pruebas físicas pendientes.
+
 ## [2.8.0] - 2026-10-09
 
 ### 🐛 Corregido
