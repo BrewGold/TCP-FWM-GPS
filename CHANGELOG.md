@@ -5,6 +5,34 @@ Todos los cambios notables en este proyecto están documentados aquí.
 El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [3.0.0] - 2026-10-09
+
+### 🔄 Modificado
+
+- Nueva `RS232-RWM-GPS_V3-0.ino`, basada en Rev.2.8: migración de Arduino
+  UNO R4 WiFi (RA4M1) a Adafruit Metro M4 (SAMD51, 120 MHz).
+- COM2 pasa de UART software/timer GPT a UART hardware SERCOM4 (`Serial2`),
+  38400 bps, 8N1, TX-only. TX cambia **D2 → D7** porque PB17/PAD1 no admite
+  TX USART en SAMD51; D3 usa SERCOM5 reservado para Wire y D7/PB12/PAD0
+  ofrece SERCOM4 libre. Eliminados FspTimer y registros RA4M1.
+  Contadores basados en bytes aceptados por `Serial2.write()`.
+- Calibración de magnetómetro y `yawoff` en flash interna con FlashStorage
+  compatible con SAMD51 y fixes de caché (commit `634e7fd0c84120260d52ab75dd7687980941c3d9`),
+  en lugar de EEPROM; recalibrar tras migrar/cargar sketch.
+- GNSS D0/D1, IMU SDA/SCL a 100 kHz, W5500 SPI ICSP/CS D10/SD CS D4 y LEDs
+  D5/D6 conservados. Metro M4 requiere señales/pull-ups a 3.3 V.
+  Se mantienen `$GCGGA`, lógica GNSS/HAS/estados/offset, comandos TCP,
+  puertos 15919/15920 y respaldo `192.168.1.22`.
+
+### 🐛 Corregido
+
+- Eliminada la dependencia del core Renesas con el defecto I2C CMOS/open-drain
+  descrito en [issue #543](https://github.com/arduino/ArduinoCore-renesas/issues/543),
+  mediante el I2C SERCOM del core SAMD51. El cambio de orden de Rev.2.8
+  no resolvió el IMU; la detección 0x69/0x68 en Metro M4 queda pendiente de banco.
+  El informe del issue afecta a I2C SCI y no prueba por sí solo la causa de
+  todos los fallos en UNO R4.
+
 ## [2.8.0] - 2026-10-09
 
 ### 🐛 Corregido

@@ -1,6 +1,6 @@
 # RS232-FWD-GPS
 
-Sistema GNSS para Dynatest FWD con receptor ArduSimple simpleRTK3B Budget (UM980) y controlador Arduino UNO R4 WiFi.
+Sistema GNSS para Dynatest FWD con receptor ArduSimple simpleRTK3B Budget (UM980) y controlador Adafruit Metro M4.
 
 ## Objetivo
 
@@ -10,17 +10,17 @@ Proporcionar al Dynatest FWD una posición GNSS mejorada mediante:
 - Promedio temporal de coordenadas durante la parada.
 - Corrección de offset antena-pistón mediante IMU (ICM-20948).
 - Presentación del estado GNSS mediante LEDs externos.
-- Diagnóstico y control por TCP Ethernet (sin BLE en Rev.2.8).
+- Diagnóstico y control por TCP Ethernet (sin BLE en Rev.3.0).
 
 ## Arquitectura (alto nivel)
 
 - **GNSS**: ArduSimple simpleRTK3B Budget (UM980) → Serial1 (D0/D1) @ 115200 bps
-- **MCU**: Arduino UNO R4 WiFi (Renesas RA4M1)
+- **MCU**: Adafruit Metro M4 (SAMD51, Cortex-M4 @ 120 MHz)
 - **IMU**: SparkFun ICM-20948 → I2C (0x69/0x68)
-- **Salida FWD (COM2)**: UART TX-only por timer GPT en D2 @ 38400 bps ($GCGGA a 10 Hz)
+- **Salida FWD (COM2)**: UART hardware SERCOM4 TX-only en D7 @ 38400 bps, 8N1 ($GCGGA a 10 Hz)
 - **Ethernet**: Shield W5500 → servidores TCP NMEA (15919) y diagnóstico (15920)
   con DHCP o IP fija de respaldo `192.168.1.22`
-- **Diagnóstico**: comandos TCP por Ethernet (sin BLE en Rev.2.8)
+- **Diagnóstico**: comandos TCP por Ethernet (sin BLE en Rev.3.0)
 - **LEDs**: D5 (GNSS+IMU+HAS), D6 (Movimiento)
 
 Flujo principal:
@@ -31,7 +31,7 @@ Flujo principal:
 4. Detecta estado MOVING/AVERAGING/LOCKED mediante máquina de estados.
 5. En parada promedia coordenadas (15 s por defecto, media recortada 5%).
 6. Aplica offset antena-pistón (0.55 m, dirección yaw+270°).
-7. Emite $GCGGA corregida al FWD por D2 @ 38400 bps.
+7. Emite $GCGGA corregida al FWD por D7 @ 38400 bps.
 8. Sirve la trama por Ethernet TCP a los clientes conectados.
 9. El servidor TCP ofrece diagnóstico periódico y comandos interactivos.
 10. LEDs reflejan GNSS, IMU, HAS y movimiento/bloqueo.
@@ -44,7 +44,8 @@ Flujo principal:
 
 ## Estructura del repositorio
 
-- `firmware/arduino/RS232-RWM-GPS_V2-8.ino`: versión actual de firmware.
+- `firmware/arduino/RS232-RWM-GPS_V3-0.ino`: versión actual de firmware (Metro M4).
+- `firmware/arduino/RS232-RWM-GPS_V2-8.ino`: última base UNO R4, conservada.
 - `firmware/arduino/README.md`: detalle técnico del firmware.
 - `docs/functional-spec-v1.0.md`: especificación funcional completa.
 - `docs/system-architecture.md`: detalle de arquitectura y comunicaciones.
@@ -52,11 +53,42 @@ Flujo principal:
 
 ## Versiones
 
-### Rev.2.8 (Actual)
+### Rev.3.0 (Actual): migración a Metro M4
+
+- Se sustituye UNO R4 WiFi por **Adafruit Metro M4 (SAMD51)** para evitar el
+  defecto del core Renesas descrito en [issue #543](https://github.com/arduino/ArduinoCore-renesas/issues/543):
+  SDA/SCL de I2C SCI configurados como CMOS en vez de open-drain. El issue
+  sigue abierto; su informe original se refiere a XIAO RA4M1/SCI, no demuestra
+  por sí solo un fallo determinista de todas las UNO R4. El cambio de orden
+  de Rev.2.8 no resolvió el IMU; la detección en la nueva placa debe probarse.
+- **Único cambio de señal: COM2 TX de D2 a D7**, hacia la entrada TTL del
+  MAX3232/FWD. D2 = PB17/PAD1 no admite TX USART en SAMD51; D3 usa SERCOM5,
+  reservado para Wire. D7 = PB12/SERCOM4/PAD0 sí permite TX y queda libre.
+  `Serial2` es un `Uart` creado por
+  este firmware, no un puerto predefinido. Salida 38400/8N1 por hardware,
+  sin bit-banging ni GPT; no se conecta RX.
+- GNSS `Serial1` D0/D1, LEDs D5/D6, IMU en los conectores **SDA/SCL**
+  y W5500 por **SPI ICSP**, CS D10/SD CS D4, mantienen su cableado.
+  En Metro M4, A4/A5 no son SDA/SCL y D11–D13 no son el SPI ICSP.
+  Sus GPIO son **3.3 V y no toleran 5 V**: verificar niveles y pull-ups
+  del GNSS, IMU, shield y transceptor antes de apilar/conectar.
+- `Wire` permanece a 100 kHz, sin workaround de modo de pin Renesas;
+  requiere pull-ups adecuados a 3.3 V. Ethernet conserva la API SPI genérica,
+  DHCP y respaldo `192.168.1.22/24` (gateway/DNS `192.168.1.1`).
+- Calibración y `yawoff` pasan de EEPROM a flash interna con **FlashStorage
+  con soporte SAMD51**; persisten tras reiniciar, no tras cargar otro sketch.
+  No se importan datos de la UNO R4. Recalibrar tras migrar.
+- Sin cambios en GNSS/HAS, MOVING/AVERAGING/LOCKED, offset, `$GCGGA`, puertos
+  TCP 15919/15920 ni comandos `status`, `imu`, `com2`, `help`,
+  `magcal start/stop/reset`, `yawoff`, `freq`, `diag on/off`.
+- Instalación, APIs verificadas y pruebas de banco pendientes:
+  [README de firmware](firmware/arduino/README.md#rev30-metro-m4-y-com2-por-uart-hardware).
+
+### Rev.2.8 (Histórica)
 
 **Cambios principales:**
-- ✅ I2C/ICM-20948 se inicializan antes de arrancar el timer GPT4 de COM2,
-  evitando que el orden de inicialización deje el IMU sin detectar.
+- I2C/ICM-20948 se inicializan antes de arrancar el timer GPT4 de COM2;
+  el cambio de orden no resolvió la detección del IMU.
 - ✅ Ethernet intenta DHCP primero y usa `192.168.1.22/24` (gateway
   `192.168.1.1`) si DHCP no está disponible.
 - ✅ Clientes TCP: conectar a la IP obtenida por DHCP o, en modo de respaldo,
@@ -162,13 +194,14 @@ SAVECONFIG
 
 - Arduino IDE 2.x+
 - Librería: `SparkFun ICM-20948 Arduino Library`
-- Librería: `ArduinoBLE`
+- Plataforma: **Adafruit SAMD Boards**, placa **Adafruit Metro M4**
 - Librería: `Ethernet` (W5500)
-- Librería: `EEPROM` (nativa)
+- Librería: `FlashStorage` con soporte SAMD51 (ver README de firmware)
+- `Wire`, `SPI` y `Uart` incluidos en el core; no se necesita ArduinoBLE
 
 ## Hardware requerido
 
-- Arduino UNO R4 WiFi
+- Adafruit Metro M4 (lógica 3.3 V)
 - ArduSimple simpleRTK3B Budget (UM980)
 - SparkFun ICM-20948
 - W5500 Ethernet shield

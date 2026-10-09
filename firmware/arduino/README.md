@@ -1,12 +1,119 @@
 # Firmware Arduino
 
-Este directorio contiene la implementación funcional del firmware para el Arduino UNO R4 WiFi utilizado como MCU del sistema GNSS FWD.
+Este directorio contiene el firmware del sistema GNSS FWD para Adafruit Metro M4
+y las revisiones históricas para Arduino UNO R4 WiFi.
 
 ## Versión actual
 
-- `RS232-RWM-GPS_V2-8.ino` — **Rev.2.8 TCP sin BLE**
+- `RS232-RWM-GPS_V3-0.ino` — **Rev.3.0 TCP sin BLE, Metro M4**
+
+### Rev.3.0: Metro M4 y COM2 por UART hardware
+
+Base: `RS232-RWM-GPS_V2-8.ino`, conservada sin modificaciones. Se migra de
+RA4M1 a **SAMD51 Cortex-M4 a 120 MHz** para evitar la dependencia del core
+Renesas y su [issue #543](https://github.com/arduino/ArduinoCore-renesas/issues/543),
+abierto, sobre SDA/SCL en modo CMOS en vez de open-drain en I2C SCI.
+El informe original es de XIAO RA4M1/SCI y no demuestra por sí solo un fallo
+determinista de todas las UNO R4. El orden de init de Rev.2.8 no resolvió
+la detección del IMU; no se presupone un conflicto SPI/I2C/GPT.
+
+#### Cableado y recursos
+
+| Función | Metro M4 | Recurso |
+|---|---|---|
+| GNSS UM980 | D0 RX / D1 TX, 115200 | `Serial1`, SERCOM3, PAD1/PAD0 |
+| COM2 TX hacia MAX3232/FWD | **D7**, 38400/8N1 | `Serial2` propio, SERCOM4/PAD0, mux `PIO_SERCOM` |
+| IMU ICM-20948 | SDA/SCL, 100 kHz, 0x69/0x68 | `Wire`, SERCOM5 |
+| W5500 | SPI **ICSP**, CS D10, SD CS D4 deshabilitado | `SPI`, SERCOM2 |
+| LEDs | D5/D6 | GPIO |
+
+**Mover únicamente COM2 TX de D2 a D7.** D2 = PB17 ofrece SERCOM5/PAD1,
+no un TX USART SAMD51; D3 = PB16 ofrece SERCOM5/PAD0, pero SERCOM5 está
+reservado para I2C y no se reutiliza. D7 = PB12 ofrece SERCOM4/PAD0 por mux C
+y no lo usan el shield ni los otros periféricos. No hay
+`Serial2`/`Serial3` predefinidos en esta variante: el sketch declara su `Uart`
+y los cuatro handlers `SERCOM4_0/1/2/3_Handler`. No necesita Adafruit_ZeroSeries.
+El core exige un índice RX válido en el constructor: se reutiliza el índice D7
+sin mapear otro GPIO y se deshabilita el receptor USART. **No conectar RX COM2**.
+
+El shield apilable debe tomar SPI del **ICSP**, no de D11/D12/D13.
+Conectar el IMU a los conectores **SDA/SCL**, no a A4/A5 (en Metro M4 son
+pines distintos). Para esos conectores se mantiene el cableado del shield.
+**Metro M4 usa lógica 3.3 V, no tolera 5 V**: verificar las señales del UM980,
+el MAX3232 y el shield, así como los pull-ups del IMU a 3.3 V antes de conectar.
+`Wire.begin()`/`Wire.setClock(100000)` usan el I2C hardware open-drain;
+no se aplica ningún workaround Renesas ni se omiten los pull-ups externos
+(usar los del breakout si ya los incorpora).
+`Ethernet.h` conserva su API SPI genérica y CS explícito D10. Se mantienen
+DHCP y respaldo `192.168.1.22/24`, gateway/DNS `192.168.1.1`.
+
+#### Transmisión y persistencia
+
+- `Serial2.begin(COM2_BAUD, SERIAL_8N1)` configura el USART real;
+  `Serial2.write()` transmite la misma trama `$GCGGA`, checksum y CR/LF.
+  Se comprueba `availableForWrite()` antes de encolar una trama completa
+  para no esperar por espacio ni introducir una trama parcial por saturación.
+- Los bits los genera el USART: a 38400/8N1 cada bit dura nominalmente
+  **26.0417 µs**, cada byte **260.417 µs** y 240 bytes **62.5 ms**, menor que
+  el periodo mínimo de 100 ms. No hay ISR por bit, FspTimer ni bit-banging.
+  Los handlers solo atienden el buffer UART del core, sin parsear GNSS.
+- `com2BytesSent` suma el retorno de `write()`; `com2FramesSent` y
+  `com2LastFrameMs` avanzan al aceptar la trama completa. Estos contadores
+  indican bytes/tramas aceptados por el UART, no confirmación del FWD ni
+  finalización física del último bit. No se usa `flush()` bloqueante.
+- SAMD51 no tiene la EEPROM de RA4M1: `FlashStorage(magCalStorage,
+  MagCalibration)` reserva flash **interna** (no QSPI ni SPI del shield).
+  `read()`/`write()` sustituyen `EEPROM.get()`/`put()`, manteniendo magic y
+  comprobaciones de valores finitos. Calibración y `yawoff` sobreviven
+  reinicios, pero se pierden al cargar un sketch; no se importan los datos
+  de la UNO R4. Recalibrar después de migrar o reprogramar.
+  Guardar solo con `magcal stop/reset` o `yawoff`, nunca periódicamente:
+  cada escritura borra flash y consume su vida útil; evitar comandos repetidos.
+- `millis()`, `micros()`, `delay()` y la comprobación CMSIS `__get_IPSR()`
+  existen en SAMD51; se mantienen las restas sin signo y la atención GNSS
+  mediante `yield()`. No hay accesos a registros RA4M1.
+- Sin cambios en HAS/fix 5, MOVING/AVERAGING/LOCKED, offset antena-pistón,
+  LEDs o TCP NMEA **15919** / diagnóstico **15920** y sus comandos:
+  `status`, `imu`, `com2`, `help`, `magcal start/stop/reset`, `yawoff`,
+  `freq <1..10>`, `diag on/off`.
+
+#### Instalación y validación
+
+**Arduino IDE 2.x:** instalar **Adafruit SAMD Boards** y seleccionar
+**Adafruit Metro M4** (no UNO R4 ni Metro M0). Abrir el archivo en una carpeta
+propia `RS232-RWM-GPS_V3-0`; no agrupar las revisiones en un mismo sketch.
+Instalar Ethernet (W5500), SparkFun ICM-20948 Arduino Library y
+**FlashStorage de cmaglie, commit
+[`634e7fd0c84120260d52ab75dd7687980941c3d9`](https://github.com/cmaglie/FlashStorage/tree/634e7fd0c84120260d52ab75dd7687980941c3d9)**:
+descargar el ZIP de ese commit e instalar mediante «Añadir biblioteca .ZIP».
+Su metadata indica 1.0.0, pero incluye correcciones SAMD51 de caché NVMCTRL/CMCC
+posteriores al tag 1.0.0; no usar solo la versión del gestor sin esos fixes.
+Wire, SPI, Uart, SERCOM y
+`wiring_private.h` pertenecen al core Adafruit; no instalar EEPROM/FspTimer/BLE.
+
+Fuentes para la validación conceptual:
+[variante Metro M4 (core 1.7.16)](https://github.com/adafruit/ArduinoCore-samd/tree/1.7.16/variants/metro_m4),
+[Uart.cpp](https://github.com/adafruit/ArduinoCore-samd/blob/1.7.16/cores/arduino/Uart.cpp),
+[SERCOM.cpp](https://github.com/adafruit/ArduinoCore-samd/blob/1.7.16/cores/arduino/SERCOM.cpp),
+[mux SAMD51J19A](https://github.com/adafruit/asf4/blob/d270f79aa16dd8fd4ae3b6c14544283dcb992e9c/samd51/include/pio/samd51j19a.h#L1218-L1225)
+y [FlashStorage](https://github.com/cmaglie/FlashStorage/tree/634e7fd0c84120260d52ab75dd7687980941c3d9).
+
+No hay Arduino CLI ni infraestructura de tests en este repositorio.
+**Compilación con el core y pruebas físicas pendientes**; la revisión de APIs
+no sustituye estas comprobaciones:
+
+1. Compilar/subir solo Rev.3.0 y comprobar banner Metro M4/SERCOM4 en D7.
+2. Detectar ICM-20948 en 0x69/0x68 y W5500 simultáneamente, verificar yaw.
+3. Decodificar D7 a 38400/8N1 con analizador lógico bajo carga GNSS/I2C/TCP:
+   checksum/CRLF correctos, sin descartes a 1/10 Hz ni errores GNSS.
+4. Probar TCP 15919/15920, todos los comandos, clientes lentos, desconexión
+   Ethernet, reintento IMU y respaldo fijo cuando DHCP no responde.
+5. Guardar calibración/`yawoff`, reiniciar y comprobar lectura; repetir tras
+   reprogramar para confirmar que se debe recalibrar. Verificar estados y LEDs.
 
 ### Rev.2.8: inicialización I2C/IMU y respaldo Ethernet
+
+Revisión histórica UNO R4: el cambio de orden no resolvió la detección del IMU.
 
 - `Wire.begin()`, `Wire.setClock()` y la inicialización del ICM-20948 se
   ejecutan antes de `softSerialInit()`, que inicia el timer GPT4 de COM2.
@@ -103,7 +210,7 @@ Esta revisión histórica incluye:
 
 ---
 
-## 1) Hardware
+## 1) Hardware (referencia Rev.2.x, UNO R4)
 
 ### UART entrada GNSS (UM980)
 - **Puerto**: `Serial1`
@@ -298,7 +405,9 @@ SAVECONFIG
 
 ## 9) Archivos relevantes
 
-- `RS232-RWM-GPS_V2-5.ino` — firmware actual de referencia
+- `RS232-RWM-GPS_V3-0.ino` — firmware actual, Metro M4
+- `RS232-RWM-GPS_V2-8.ino` — base histórica UNO R4
+- `RS232-RWM-GPS_V2-5.ino` — referencia histórica BLE
 - `RS232-RWM-GPS_V2-4.ino` — revisión anterior (BLE, ICM-20948)
 - `RS232-FMW-GPS_V-2_2.ino` / `V-2_1` / `V-2_0` / `V-1_0` — revisiones históricas
 - `../../README.md` — documentación general del proyecto
@@ -308,6 +417,8 @@ SAVECONFIG
 
 ## 10) Versiones
 
+- **Rev.3.0**: Metro M4, COM2 UART hardware SERCOM4 en D7, calibración en flash
+- **Rev.2.8**: base UNO R4 con cambio de orden I2C y respaldo IP fija
 - **Rev.2.5**: HAS por fix 5 en GGA, LED1 fijo solo con HAS, precisión estimada por HDOP en BLE
 - **Rev.2.4**: BLE (Nordic UART), ICM-20948, calibración magnetómetro, COM2 UART software, sin WiFi
 - **Rev.2.2**: separación `freq` / `diag` en terminal TCP
