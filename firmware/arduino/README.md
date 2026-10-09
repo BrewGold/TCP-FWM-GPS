@@ -4,9 +4,26 @@ Este directorio contiene la implementación funcional del firmware para el Ardui
 
 ## Versión actual
 
-- `RS232-RWM-GPS_V2-7.ino` — **Rev.2.7 TCP sin BLE**
+- `RS232-RWM-GPS_V2-8.ino` — **Rev.2.8 TCP sin BLE**
+
+### Rev.2.8: inicialización I2C/IMU y respaldo Ethernet
+
+- `Wire.begin()`, `Wire.setClock()` y la inicialización del ICM-20948 se
+  ejecutan antes de `softSerialInit()`, que inicia el timer GPT4 de COM2.
+  `Serial1` se inicia antes de I2C y `gnssStarted` permite atender la entrada
+  GNSS mediante `yield()` durante las operaciones cooperativas de setup.
+- Ethernet mantiene DHCP como primera opción. Si falla, configura la IP fija
+  `192.168.1.22`, máscara `255.255.255.0` y gateway/DNS `192.168.1.1`.
+  El log indica cuál modo se usó. Los clientes TCP pueden conectar a esa IP
+  de respaldo en NMEA `15919` y diagnóstico `15920`; con DHCP, usan la IP
+  asignada e impresa en serie.
+- Se mantienen COM2 por timer GPT4, GNSS UM980/HAS, yaw/IMU, los estados
+  MOVING/AVERAGING/LOCKED, offset antena-pistón, LEDs D5/D6 y los comandos
+  TCP de diagnóstico descritos para Rev.2.7.
 
 ### Rev.2.7: COM2 sin bloqueo global de interrupciones
+
+Versión anterior, conservada como referencia:
 
 Basada en la Rev.2.6 de doble servidor TCP de la [PR #21](https://github.com/BrewGold/TCP-FWM-GPS/pull/21)
 (commit `02573a8ab5e1353dddf0777ac1f01b5ef54b9b41`); esa revisión no estaba
@@ -95,7 +112,7 @@ Esta revisión histórica incluye:
 - **Formato**: GGA + RMC
 
 ### UART salida FWD (Dynatest)
-- **Puerto**: UART software TX-only en D2 (bit-banging con `noInterrupts()`)
+- **Puerto**: UART TX-only por timer GPT en D2
 - **Baud**: `38400`
 - **Formato**: `$GCGGA` únicamente
 - **Periodo**: `100 ms` (10 Hz)
@@ -105,7 +122,7 @@ Esta revisión histórica incluye:
 - **Bus**: I2C @ 100 kHz
 - **Direcciones**: 0x69 (primaria) / 0x68 (secundaria)
 - **Uso**: yaw fusionado (giróscopo + magnetómetro con compensación de inclinación) para corrección de offset antena-pistón
-- **Calibración**: offsets hard-iron guardados en EEPROM, gestionados por BLE
+- **Calibración**: offsets hard-iron guardados en EEPROM, gestionados por TCP
 
 ### LEDs
 - **LED1**: D5 — estado GNSS + IMU + HAS
@@ -113,7 +130,8 @@ Esta revisión histórica incluye:
 
 ### Ethernet
 - **Shield**: W5500 (CS en D10, SD CS en D4 deshabilitado)
-- **Destino**: `192.168.1.122:15919` (DHCP)
+- **IP del dispositivo**: por DHCP o `192.168.1.22` como respaldo
+- **Servidores TCP**: NMEA `15919` y diagnóstico `15920`
 
 ### Bluetooth Low Energy
 - **Nombre**: `FWD-GPS-Diag`

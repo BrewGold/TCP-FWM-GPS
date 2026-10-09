@@ -5,6 +5,20 @@ Todos los cambios notables en este proyecto están documentados aquí.
 El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [2.8.0] - 2026-10-09
+
+### 🐛 Corregido
+
+- Orden de inicialización en `setup()`: Wire/ICM-20948 se inicializan antes
+  de `softSerialInit()` y del arranque del timer GPT4 de COM2, evitando el
+  fallo determinista de detección I2C del IMU.
+
+### ✨ Agregado
+
+- IP fija de respaldo `192.168.1.22/24` para Ethernet W5500 cuando DHCP falla
+  (gateway/DNS `192.168.1.1`); los servidores TCP NMEA (15919) y diagnóstico
+  (15920) continúan disponibles con esta dirección.
+
 ## [2.5.0] - 2026-10-02
 
 ### ✨ Agregado

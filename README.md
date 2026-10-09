@@ -10,16 +10,17 @@ Proporcionar al Dynatest FWD una posición GNSS mejorada mediante:
 - Promedio temporal de coordenadas durante la parada.
 - Corrección de offset antena-pistón mediante IMU (ICM-20948).
 - Presentación del estado GNSS mediante LEDs externos.
-- Diagnóstico y control por Bluetooth Low Energy (BLE).
+- Diagnóstico y control por TCP Ethernet (sin BLE en Rev.2.8).
 
 ## Arquitectura (alto nivel)
 
 - **GNSS**: ArduSimple simpleRTK3B Budget (UM980) → Serial1 (D0/D1) @ 115200 bps
 - **MCU**: Arduino UNO R4 WiFi (Renesas RA4M1)
 - **IMU**: SparkFun ICM-20948 → I2C (0x69/0x68)
-- **Salida FWD (COM2)**: UART software TX-only en D2 @ 38400 bps ($GCGGA a 10 Hz)
-- **Ethernet**: Shield W5500 → servidor TCP 192.168.1.122:15919
-- **BLE**: servicio Nordic UART `FWD-GPS-Diag` para diagnóstico y comandos
+- **Salida FWD (COM2)**: UART TX-only por timer GPT en D2 @ 38400 bps ($GCGGA a 10 Hz)
+- **Ethernet**: Shield W5500 → servidores TCP NMEA (15919) y diagnóstico (15920)
+  con DHCP o IP fija de respaldo `192.168.1.22`
+- **Diagnóstico**: comandos TCP por Ethernet (sin BLE en Rev.2.8)
 - **LEDs**: D5 (GNSS+IMU+HAS), D6 (Movimiento)
 
 Flujo principal:
@@ -31,8 +32,8 @@ Flujo principal:
 5. En parada promedia coordenadas (15 s por defecto, media recortada 5%).
 6. Aplica offset antena-pistón (0.55 m, dirección yaw+270°).
 7. Emite $GCGGA corregida al FWD por D2 @ 38400 bps.
-8. Envía la misma trama por Ethernet a un servidor externo.
-9. BLE ofrece diagnóstico periódico y comandos interactivos.
+8. Sirve la trama por Ethernet TCP a los clientes conectados.
+9. El servidor TCP ofrece diagnóstico periódico y comandos interactivos.
 10. LEDs reflejan GNSS, IMU, HAS y movimiento/bloqueo.
 
 ## Estados de software
@@ -43,7 +44,7 @@ Flujo principal:
 
 ## Estructura del repositorio
 
-- `firmware/arduino/RS232-RWM-GPS_V2-5.ino`: versión actual de firmware.
+- `firmware/arduino/RS232-RWM-GPS_V2-8.ino`: versión actual de firmware.
 - `firmware/arduino/README.md`: detalle técnico del firmware.
 - `docs/functional-spec-v1.0.md`: especificación funcional completa.
 - `docs/system-architecture.md`: detalle de arquitectura y comunicaciones.
@@ -51,7 +52,17 @@ Flujo principal:
 
 ## Versiones
 
-### Rev.2.5 (Actual)
+### Rev.2.8 (Actual)
+
+**Cambios principales:**
+- ✅ I2C/ICM-20948 se inicializan antes de arrancar el timer GPT4 de COM2,
+  evitando que el orden de inicialización deje el IMU sin detectar.
+- ✅ Ethernet intenta DHCP primero y usa `192.168.1.22/24` (gateway
+  `192.168.1.1`) si DHCP no está disponible.
+- ✅ Clientes TCP: conectar a la IP obtenida por DHCP o, en modo de respaldo,
+  a `192.168.1.22` en los puertos NMEA `15919` y diagnóstico `15920`.
+
+### Rev.2.5 (Histórica)
 
 **Cambios principales:**
 - ✅ Detección HAS desde el campo de calidad del GGA de entrada (fix 5 = HAS activo)
@@ -102,7 +113,7 @@ Flujo principal:
 | **400 ms parpadeo** | Promediando posición |
 | **ON** | Posición bloqueada |
 
-## Diagnóstico BLE (Rev.2.5)
+## Diagnóstico BLE (Rev.2.5 histórica)
 
 - **Nombre**: `FWD-GPS-Diag`
 - **Servicio**: Nordic UART Service (`6E400001-B5A3-F393-E0A9-E50E24DCCA9E`)
