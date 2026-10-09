@@ -111,6 +111,50 @@ no sustituye estas comprobaciones:
 5. Guardar calibración/`yawoff`, reiniciar y comprobar lectura; repetir tras
    reprogramar para confirmar que se debe recalibrar. Verificar estados y LEDs.
 
+### Rev.2.9: puente temporal UNO R4 WiFi, sin IMU/I2C
+
+`RS232-RWM-GPS_V2-9.ino` parte de Rev.2.8 y permite validar TCP mientras
+llegan las Metro M4. **No es la revisión final recomendada: usar Rev.3.0
+para Metro M4**; ni esa revisión ni la base Rev.2.8 se modifican.
+
+- IMU/I2C deshabilitado a propósito por el problema de detección y el bug
+  del core Renesas [#543](https://github.com/arduino/ArduinoCore-renesas/issues/543).
+  El código de sensor/calibración se conserva bajo `#if 0`: no hay
+  `Wire.begin()`, sondeos, lecturas, reintentos ni acceso a EEPROM.
+- `imuAvailable` constante `false`, yaw fijo ficticio `NAN`; ACC/MAG,
+  giro, inclinación y temperatura son ceros ficticios, no mediciones.
+  `status`/`imu` indican **DESHABILITADO** y `[DIAG]` muestra **IMU=OFF**.
+  `magcal start/stop/reset` y `yawoff <-180..180>` permanecen en ayuda,
+  pero devuelven un error de modo puente sin cambiar calibración.
+- Salida COM2 **D2, GPT4, 38400/8N1** y NMEA TCP **15919** sin offset
+  antena-pistón: posición GNSS cruda en MOVING/AVERAGING y promedio GNSS
+  sin offset en LOCKED, conservando estados y fix quality.
+- LED1/D5: apagado sin GNSS válido; parpadeo 200 ms con GNSS válido,
+  incluso con HAS, como el fallback sin IMU. LED2/D6 sin cambios.
+- Conserva DHCP y respaldo **192.168.1.22/24**, gateway/DNS `192.168.1.1`,
+  cuatro clientes NMEA y un cliente de diagnóstico TCP **15920**.
+
+**Arduino IDE 2.x:** seleccionar **Arduino UNO R4 WiFi** (core oficial
+Arduino UNO R4 Boards) y abrir solo esta revisión en una carpeta propia
+`RS232-RWM-GPS_V2-9`. Requiere Ethernet (W5500); Arduino/FspTimer vienen
+con el core. No requiere instalar SparkFun ICM-20948 ni EEPROM para el
+modo puente. No agrupar revisiones en un mismo sketch.
+
+**Validación conceptual, no compilación en placa:** sin Arduino CLI ni
+infraestructura de tests, se revisan sintaxis y exclusión del código IMU.
+Compilación con el core y validación física pendientes:
+
+1. Confirmar banner Rev.2.9, sin mensajes de reintento IMU ni fallo del sensor.
+2. Con DHCP y sin DHCP (respaldo), conectar cuatro clientes a **15919**;
+   comprobar `$GCGGA`, checksum/CRLF y frecuencia con `freq 1` / `freq 10`,
+   junto con COM2 D2 a 38400/8N1.
+3. Conectar a **15920**; probar `status`, `imu`, `com2`, `help`, `freq`
+   y `diag on/off`. Verificar valores ficticios, `IMU=OFF`, rechazo de
+   comandos IMU y reconexión del cliente de diagnóstico.
+4. Confirmar ausencia de offset y conservar promedio/bloqueo/fix en
+   MOVING/AVERAGING/LOCKED y LED1 de 200 ms con GNSS válido.
+   La revisión no soluciona fallos de detección W5500; verificar el shield.
+
 ### Rev.2.8: inicialización I2C/IMU y respaldo Ethernet
 
 Revisión histórica UNO R4: el cambio de orden no resolvió la detección del IMU.
@@ -406,6 +450,7 @@ SAVECONFIG
 ## 9) Archivos relevantes
 
 - `RS232-RWM-GPS_V3-0.ino` — firmware actual, Metro M4
+- `RS232-RWM-GPS_V2-9.ino` — puente temporal UNO R4, sin IMU/I2C
 - `RS232-RWM-GPS_V2-8.ino` — base histórica UNO R4
 - `RS232-RWM-GPS_V2-5.ino` — referencia histórica BLE
 - `RS232-RWM-GPS_V2-4.ino` — revisión anterior (BLE, ICM-20948)
@@ -418,6 +463,7 @@ SAVECONFIG
 ## 10) Versiones
 
 - **Rev.3.0**: Metro M4, COM2 UART hardware SERCOM4 en D7, calibración en flash
+- **Rev.2.9**: puente temporal UNO R4 sin IMU/I2C para validar TCP 15919/15920
 - **Rev.2.8**: base UNO R4 con cambio de orden I2C y respaldo IP fija
 - **Rev.2.5**: HAS por fix 5 en GGA, LED1 fijo solo con HAS, precisión estimada por HDOP en BLE
 - **Rev.2.4**: BLE (Nordic UART), ICM-20948, calibración magnetómetro, COM2 UART software, sin WiFi
