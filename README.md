@@ -10,7 +10,7 @@ Proporcionar al Dynatest FWD una posición GNSS mejorada mediante:
 - Promedio temporal de coordenadas durante la parada.
 - Corrección de offset antena-pistón mediante IMU (ICM-20948).
 - Presentación del estado GNSS mediante LEDs externos.
-- Diagnóstico y control por Bluetooth Low Energy (BLE).
+- Diagnóstico y control por TCP.
 
 ## Arquitectura (alto nivel)
 
@@ -18,8 +18,7 @@ Proporcionar al Dynatest FWD una posición GNSS mejorada mediante:
 - **MCU**: Arduino UNO R4 WiFi (Renesas RA4M1)
 - **IMU**: SparkFun ICM-20948 → I2C (0x69/0x68)
 - **Salida FWD (COM2)**: UART software TX-only en D2 @ 38400 bps ($GCGGA a 10 Hz)
-- **Ethernet**: Shield W5500 → servidor TCP 192.168.1.122:15919
-- **BLE**: servicio Nordic UART `FWD-GPS-Diag` para diagnóstico y comandos
+- **Ethernet**: Shield W5500 → servidor TCP NMEA en puerto 15919 y servidor de diagnóstico en puerto 15920
 - **LEDs**: D5 (GNSS+IMU+HAS), D6 (Movimiento)
 
 Flujo principal:
@@ -30,10 +29,9 @@ Flujo principal:
 4. Detecta estado MOVING/AVERAGING/LOCKED mediante máquina de estados.
 5. En parada promedia coordenadas (15 s por defecto, media recortada 5%).
 6. Aplica offset antena-pistón (0.55 m, dirección yaw+270°).
-7. Emite $GCGGA corregida al FWD por D2 @ 38400 bps.
-8. Envía la misma trama por Ethernet a un servidor externo.
-9. BLE ofrece diagnóstico periódico y comandos interactivos.
-10. LEDs reflejan GNSS, IMU, HAS y movimiento/bloqueo.
+7. Emite $GCGGA corregida al FWD por D2 @ 38400 bps y a los clientes conectados al servidor TCP.
+8. El servidor TCP de diagnóstico ofrece comandos y un bloque `[DIAG]` periódico.
+9. LEDs reflejan GNSS, IMU, HAS y movimiento/bloqueo.
 
 ## Estados de software
 
@@ -43,7 +41,7 @@ Flujo principal:
 
 ## Estructura del repositorio
 
-- `firmware/arduino/RS232-RWM-GPS_V2-5.ino`: versión actual de firmware.
+- `firmware/arduino/RS232-RWM-GPS_V2-6.ino`: versión actual de firmware.
 - `firmware/arduino/README.md`: detalle técnico del firmware.
 - `docs/functional-spec-v1.0.md`: especificación funcional completa.
 - `docs/system-architecture.md`: detalle de arquitectura y comunicaciones.
@@ -51,7 +49,50 @@ Flujo principal:
 
 ## Versiones
 
-### Rev.2.5 (Actual)
+### Rev.2.6 (Actual)
+
+- Doble servidor TCP Ethernet: salida NMEA GCGGA en puerto 15919 y diagnóstico en puerto 15920
+- Sin BLE ni cliente TCP saliente a un servidor externo
+- Comandos TCP: `status`, `imu`, `com2`, `help`, `magcal start|stop|reset`, `yawoff`, `freq`, `diag on|off`
+- `freq <1..10>` controla la salida GGA/COM2; `diag on/off` controla el bloque periódico cada 5 s
+
+| Puerto | Servicio |
+|---:|---|
+| 15919 | GCGGA corregida para clientes TCP entrantes |
+| 15920 | Diagnóstico interactivo TCP |
+
+Conectarse a `<IP-del-W5500>:15920` con un cliente TCP y enviar comandos terminados en CR/LF.
+`help` lista los comandos disponibles:
+
+| Comando | Función |
+|---|---|
+| `status` | Estado general, incluye precisión estimada `UERE × HDOP` |
+| `imu` | Datos del ICM-20948 y calibración |
+| `com2` | Estado y contadores de COM2 |
+| `help` | Lista de comandos |
+| `magcal start/stop/reset` | Controla la calibración del magnetómetro en EEPROM |
+| `yawoff <-180..180>` | Ajuste de montaje del yaw |
+| `freq <1..10>` | Frecuencia de salida GGA/COM2 en Hz |
+| `diag on/off` | Activa o desactiva el bloque `[DIAG]` periódico |
+
+El diagnóstico periódico incluye la precisión estimada `UERE × HDOP`:
+
+```text
+TCP client: <IP-del-W5500>:15920
+> status
+[respuesta de estado completa]
+
+[DIAG]
+GNSS=OK FIX_IN=5 HAS=ON SOL=HAS SAT=22
+HDOP=0.6 ACC=0.12 m
+STATE=LOCKED LOCK=YES SPD=0.030 m/s
+IMU=OK YAW=181.2 MAGCAL=YES
+RAW=40.12345678,-3.45678901
+OUT=40.12345950,-3.45679120 FIX_OUT=4
+COM2 frames=1250 bytes=103750
+```
+
+### Rev.2.5 (Histórica)
 
 **Cambios principales:**
 - ✅ Detección HAS desde el campo de calidad del GGA de entrada (fix 5 = HAS activo)
@@ -83,7 +124,7 @@ Flujo principal:
 
 - Base funcional: máquina de estados, promedio de coordenadas, salida FWD
 
-## LEDs (Rev.2.5)
+## LEDs (Rev.2.6; comportamiento conservado de Rev.2.5)
 
 ### LED1 (D5) - GNSS + IMU + HAS
 
@@ -102,7 +143,7 @@ Flujo principal:
 | **400 ms parpadeo** | Promediando posición |
 | **ON** | Posición bloqueada |
 
-## Diagnóstico BLE (Rev.2.5)
+## Diagnóstico BLE (Rev.2.4/2.5, histórico)
 
 - **Nombre**: `FWD-GPS-Diag`
 - **Servicio**: Nordic UART Service (`6E400001-B5A3-F393-E0A9-E50E24DCCA9E`)
@@ -110,7 +151,7 @@ Flujo principal:
 - **TX (notificaciones)**: `6E400003-...`
 - Compatible con apps tipo Serial Bluetooth Terminal, nRF Connect y MIT App Inventor (extensión BluetoothLE).
 
-**Comandos BLE:**
+**Comandos BLE históricos:**
 
 | Comando | Función |
 |---|---|
@@ -124,6 +165,8 @@ Flujo principal:
 | `help` | Ayuda |
 
 Además, cada 5 s se envía un bloque `[DIAG]` con GNSS, fix, HAS, HDOP, precisión estimada, estado, IMU y contadores COM2.
+
+La aplicación Android `firmware/arduino/FWD_GPS_Diag/` se conserva como herramienta histórica para Rev.2.4/2.5; Rev.2.6 usa diagnóstico TCP por el puerto 15920.
 
 ## Precisión estimada
 
@@ -151,7 +194,6 @@ SAVECONFIG
 
 - Arduino IDE 2.x+
 - Librería: `SparkFun ICM-20948 Arduino Library`
-- Librería: `ArduinoBLE`
 - Librería: `Ethernet` (W5500)
 - Librería: `EEPROM` (nativa)
 

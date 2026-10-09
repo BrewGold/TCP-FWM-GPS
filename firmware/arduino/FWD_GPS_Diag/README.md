@@ -1,5 +1,7 @@
 # FWD_GPS_Diag
 
+> **Aplicación histórica/deprecada:** compatible con el firmware Rev.2.4/2.5. Desde Rev.2.6 el firmware no incluye BLE; usar el diagnóstico TCP en el puerto 15920. Esta app y su proyecto se conservan como referencia.
+
 Aplicación Android desarrollada con MIT App Inventor para diagnóstico y control del sistema FWD-GPS por Bluetooth Low Energy (BLE).
 
 ## Función

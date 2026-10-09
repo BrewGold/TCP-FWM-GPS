@@ -5,6 +5,28 @@ Todos los cambios notables en este proyecto están documentados aquí.
 El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [2.6.0] - 2026-10-09
+
+### ✨ Agregado
+
+- Servidor TCP de datos NMEA en el puerto 15919 para clientes entrantes.
+- Servidor TCP de diagnóstico en el puerto 15920 con comandos `status`, `imu`, `com2`, `help`, `magcal start|stop|reset`, `yawoff`, `freq` y `diag on|off`.
+- Control de frecuencia GGA/COM2 de 1 a 10 Hz y activación del bloque periódico `[DIAG]`.
+
+### 🔄 Modificado
+
+- Arquitectura de red de cliente TCP + BLE a servidores TCP independientes para datos NMEA y diagnóstico.
+- Diagnóstico y precisión estimada `UERE × HDOP` disponibles por TCP; se mantiene la salida COM2 en D2.
+
+### 🗑️ Eliminado
+
+- BLE completo: ArduinoBLE, servicio Nordic UART y dependencia operativa de la app `FWD_GPS_Diag`.
+- Cliente TCP saliente hacia el servidor externo `192.168.1.122:15919`.
+
+### 📝 Documentación
+
+- README principal y documentación Arduino actualizados a Rev.2.6; app Android indicada como histórica.
+
 ## [2.5.0] - 2026-10-02
 
 ### ✨ Agregado
@@ -197,6 +219,7 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
 ## Notas de compatibilidad
 
+- **Rev.2.6** cambia la arquitectura de comunicaciones: TCP entrante en 15919/15920, sin BLE ni cliente TCP saliente
 - **Rev.2.5** es retrocompatible con Rev.2.4 (mismo hardware; solo cambia la detección HAS, el LED1 y el contenido BLE)
 - **Rev.2.4** cambia el IMU (BNO085 → ICM-20948) y elimina el WiFi AP/TCP en favor de BLE
 - La calibración del magnetómetro y `yawoff` se guardan en EEPROM desde Rev.2.4
@@ -206,6 +229,7 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
 | Versión | Arduino | IMU                  | Ethernet | WiFiS3 | ArduinoBLE | EEPROM |
 |---------|---------|----------------------|----------|--------|------------|--------|
+| 2.6     | UNO R4  | SparkFun ICM-20948   | ✅       | ❌     | ❌         | ✅     |
 | 2.5     | UNO R4  | SparkFun ICM-20948   | ✅       | ❌     | ✅         | ✅     |
 | 2.4     | UNO R4  | SparkFun ICM-20948   | ✅       | ❌     | ✅         | ✅     |
 | 2.2     | UNO R4  | Adafruit_BNO08x      | ✅       | ✅     | ❌         | ❌     |

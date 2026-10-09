@@ -4,7 +4,8 @@ Este directorio contiene la implementación funcional del firmware para el Ardui
 
 ## Versión actual
 
-- `RS232-RWM-GPS_V2-5.ino` — **Rev.2.5**
+- `RS232-RWM-GPS_V2-6.ino` — **Rev.2.6**
+- `RS232-RWM-GPS_V2-5.ino` — Rev.2.5 histórica
 
 La versión actual incluye:
 
@@ -14,9 +15,15 @@ La versión actual incluye:
 - Detección HAS por fix 5 en el GGA de entrada
 - Precisión horizontal estimada según HDOP y tipo de fix
 - LEDs D5/D6 con estados GNSS + IMU + HAS + movimiento
-- Ethernet W5500 a 192.168.1.122:15919
-- Diagnóstico y control por Bluetooth Low Energy (Nordic UART Service)
-- Calibración del magnetómetro por BLE con guardado en EEPROM
+- Servidores TCP Ethernet W5500: NMEA en puerto 15919 y diagnóstico en puerto 15920
+- Sin ArduinoBLE ni cliente TCP saliente
+- Calibración del magnetómetro por TCP con guardado en EEPROM
+
+### Dependencias (Rev.2.6)
+
+- `Ethernet` (W5500)
+- `SparkFun ICM-20948 Arduino Library`
+- `EEPROM` (nativa)
 
 ---
 
@@ -39,7 +46,7 @@ La versión actual incluye:
 - **Bus**: I2C @ 100 kHz
 - **Direcciones**: 0x69 (primaria) / 0x68 (secundaria)
 - **Uso**: yaw fusionado (giróscopo + magnetómetro con compensación de inclinación) para corrección de offset antena-pistón
-- **Calibración**: offsets hard-iron guardados en EEPROM, gestionados por BLE
+- **Calibración**: offsets hard-iron guardados en EEPROM, gestionados por TCP
 
 ### LEDs
 - **LED1**: D5 — estado GNSS + IMU + HAS
@@ -47,15 +54,12 @@ La versión actual incluye:
 
 ### Ethernet
 - **Shield**: W5500 (CS en D10, SD CS en D4 deshabilitado)
-- **Destino**: `192.168.1.122:15919` (DHCP)
+- **IP**: DHCP; los clientes se conectan a la IP local del W5500
 
-### Bluetooth Low Energy
-- **Nombre**: `FWD-GPS-Diag`
-- **Servicio**: Nordic UART Service
-  - Servicio: `6E400001-B5A3-F393-E0A9-E50E24DCCA9E`
-  - RX (comandos): `6E400002-B5A3-F393-E0A9-E50E24DCCA9E`
-  - TX (notificaciones): `6E400003-B5A3-F393-E0A9-E50E24DCCA9E`
-- Chunks de 20 bytes; acepta comandos con o sin CR/LF (compatible con MIT App Inventor)
+| Puerto TCP | Servicio |
+|---:|---|
+| 15919 | Servidor NMEA `$GCGGA` (hasta cuatro clientes entrantes) |
+| 15920 | Servidor interactivo de diagnóstico (una conexión activa) |
 
 ---
 
@@ -131,25 +135,29 @@ Con fix quality de salida según el estado:
 6. En `AVERAGING` acumula lat/lon/alt/yaw y calcula promedio recortado.
 7. En `LOCKED` transmite la posición corregida; si no hay bloqueo, transmite instantánea con offset si hay yaw.
 8. Emite `$GCGGA` por D2 hacia el Dynatest a 10 Hz.
-9. Envía la misma trama por Ethernet.
-10. Publica diagnóstico por BLE cada 5 s y atiende comandos interactivos.
+9. Envía la misma trama a los clientes TCP conectados al puerto 15919.
+10. Publica diagnóstico TCP cada 5 s (si está activado) y atiende comandos en el puerto 15920.
 
 ---
 
-## 6) Diagnóstico y comandos BLE
+## 6) Diagnóstico y comandos TCP
 
 ### Comandos disponibles
 
-```
-status             Estado general completo (incluye precisión estimada)
-imu                Datos del ICM-20948 y calibración
-com2               Estado y contadores COM2
-magcal start       Inicia calibración del magnetómetro
-magcal stop        Finaliza, valida y guarda en EEPROM
-magcal reset       Borra la calibración
-yawoff <grados>    Ajuste montaje yaw (-180..180)
-help               Lista de comandos
-```
+| Comando | Función |
+|---|---|
+| `status` | Estado general completo, incluye precisión estimada |
+| `imu` | Datos del ICM-20948 y calibración |
+| `com2` | Estado y contadores COM2 |
+| `help` | Lista de comandos |
+| `magcal start` | Inicia calibración del magnetómetro |
+| `magcal stop` | Finaliza, valida y guarda en EEPROM |
+| `magcal reset` | Borra la calibración |
+| `yawoff <-180..180>` | Ajuste de montaje yaw |
+| `freq <1..10>` | Frecuencia GGA/COM2 (Hz) |
+| `diag on/off` | Activa o desactiva el bloque periódico `[DIAG]` |
+
+Conectar un cliente TCP a `<IP-del-W5500>:15920` y enviar cada comando terminado en CR/LF. El puerto 15919 distribuye GGA a los clientes entrantes; no existe conexión saliente a `192.168.1.122:15919`.
 
 ### Calibración del magnetómetro
 
@@ -164,9 +172,18 @@ Se reporta en `status` (`Precision est`) y en `[DIAG]` (`ACC`), calculada como `
 
 - GPS: 3.00 m · DGPS: 1.00 m · RTK: 0.02 m · HAS: 0.20 m
 
-### Ejemplo de diagnóstico periódico
+### Ejemplo de sesión TCP en puerto 15920
 
 ```text
+> status
+========== STATUS ==========
+GNSS: OK
+GGA entrada fix: 5
+HAS: ACTIVO
+HDOP: 0.6
+Precision est: 0.12 m
+Ethernet TCP: NMEA 15919 / diagnostico 15920 (OK)
+
 [DIAG]
 GNSS=OK FIX_IN=5 HAS=ON SOL=HAS SAT=22
 HDOP=0.6 ACC=0.12 m
@@ -182,13 +199,12 @@ COM2 frames=1250 bytes=103750
 ## 7) Checklist rápido de validación
 
 1. Conectar Arduino con alimentación externa adecuada.
-2. Confirmar que el dispositivo BLE `FWD-GPS-Diag` aparece al escanear.
-3. Conectar desde Android (Serial Bluetooth Terminal / nRF Connect / app propia) y activar notificaciones en TX.
-4. Enviar `status` y verificar GNSS, fix de entrada, HAS y precisión estimada.
+2. Confirmar que el W5500 obtiene una IP DHCP.
+3. Conectar un cliente TCP a `<IP-del-W5500>:15920` y ejecutar `status`.
+4. Conectar un cliente TCP a `<IP-del-W5500>:15919` y verificar `$GCGGA`.
 5. Confirmar LED1 fijo solo con fix 5 (HAS) y parpadeo con fix 1.
 6. Confirmar `$GCGGA` en salida FWD por D2 a 10 Hz.
 7. Validar calibración con `magcal start/stop` e `imu`.
-8. Comprobar la conexión Ethernet al servidor externo.
 
 ---
 
@@ -208,13 +224,14 @@ SAVECONFIG
 
 - La corrección de antena se aplica solo si el ICM-20948 está disponible y el yaw es válido.
 - La calibración del magnetómetro y el `yawoff` se guardan en EEPROM y sobreviven reinicios.
-- El WiFi Server de revisiones anteriores fue eliminado en Rev.2.4.
+- La app Android `FWD_GPS_Diag/` se conserva como referencia histórica de Rev.2.4/2.5; Rev.2.6 la sustituye por diagnóstico TCP en 15920.
 
 ---
 
 ## 9) Archivos relevantes
 
-- `RS232-RWM-GPS_V2-5.ino` — firmware actual de referencia
+- `RS232-RWM-GPS_V2-6.ino` — firmware actual
+- `RS232-RWM-GPS_V2-5.ino` — revisión anterior de referencia
 - `RS232-RWM-GPS_V2-4.ino` — revisión anterior (BLE, ICM-20948)
 - `RS232-FMW-GPS_V-2_2.ino` / `V-2_1` / `V-2_0` / `V-1_0` — revisiones históricas
 - `../../README.md` — documentación general del proyecto
@@ -224,7 +241,8 @@ SAVECONFIG
 
 ## 10) Versiones
 
-- **Rev.2.5**: HAS por fix 5 en GGA, LED1 fijo solo con HAS, precisión estimada por HDOP en BLE
+- **Rev.2.6**: TCP limpia sin BLE; servidores NMEA 15919 y diagnóstico 15920
+- **Rev.2.5**: HAS por fix 5 en GGA, LED1 fijo solo con HAS, precisión estimada por HDOP
 - **Rev.2.4**: BLE (Nordic UART), ICM-20948, calibración magnetómetro, COM2 UART software, sin WiFi
 - **Rev.2.2**: separación `freq` / `diag` en terminal TCP
 - **Rev.2.1**: WiFi AP + control TCP interactivo
