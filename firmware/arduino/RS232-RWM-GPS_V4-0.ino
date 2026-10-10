@@ -205,6 +205,7 @@ uint32_t ggaValidCount = 0, ggaInvalidCount = 0;
 uint32_t rmcValidCount = 0, rmcInvalidCount = 0;
 uint32_t gnssOverflowCount = 0, outputSuppressedCount = 0;
 const char* ggaLastReason = "no-GGA";
+uint32_t lastGgaBadChecksumLogMs = 0;
 const char* rmcLastReason = "no-RMC";
 const char* outputLastReason = "no-GNSS-data";
 uint32_t imuReadyCount = 0, imuNotReadyCount = 0;
@@ -957,6 +958,12 @@ bool parseGGA(const char* line) {
 
   if (!validateNmeaChecksum(line)) {
     ggaLastReason = "checksum";
+    uint32_t now = millis();
+    if (now - lastGgaBadChecksumLogMs >= 1000) {
+      lastGgaBadChecksumLogMs = now;
+      usbLog.print("[GNSS RAW-BAD-CHK] ");
+      usbLog.println(line);
+    }
     return false;
   }
 
