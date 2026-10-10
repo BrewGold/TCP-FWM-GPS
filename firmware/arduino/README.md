@@ -58,6 +58,16 @@ ni esperar al monitor. Si se llena se pierden bytes de diagnóstico
 al reconectar, el siguiente resumen muestra el estado actual.
 Los comandos TCP `status`, `imu` y `com2` incluyen el mismo resumen.
 
+`[GNSS RAW-BAD-CHK] <línea>` aparece por USB solo cuando una GGA falla la
+validación de checksum, como máximo una vez cada 1000 ms. Muestra la línea
+recibida sin modificar, antes de separar campos (sin los terminadores CR/LF
+retirados por el lector; máximo 239 caracteres del buffer GNSS). Para comprobarla
+manualmente, calcular el XOR de los bytes entre `$` y `*`, excluyendo ambos,
+y comparar el resultado hexadecimal de dos dígitos con `XX` en `*XX`.
+Comparar también con una captura directa del UM980 permite investigar formato
+del receptor, buffer/parser o corrupción UART; esta línea no determina por sí
+sola la causa ni cambia la aceptación de GGA o la transmisión.
+
 - **GNSS:** bytes RX, GGA/RMC aceptadas y rechazadas, último motivo de cada
   parser, edad en ms desde la última trama válida, líneas desbordadas y ciclos
   de salida suprimidos. `no-GNSS-data`, `no-GGA`, `checksum`, `fix-invalid` o
@@ -88,6 +98,18 @@ y Ethernet con entrada GGA válida, desconectar cable/cliente y cerrar el
 monitor USB. Verificar recepción real en el cliente y D2 con analizador:
 los retornos de PIO/socket no prueban recepción por FWD ni por el cliente.
 Esta revisión no da por estabilizado ni validado el hardware.
+
+#### LED1/LED2 en Rev.4.0
+
+Comportamiento de `updateLeds()` (los períodos son ciclos completos):
+
+- **LED1 / D5**, en orden de prioridad: apagado sin GNSS válido; con GNSS válido
+  e IMU no disponible, parpadeo de **200 ms** (100 ms encendido/100 ms apagado);
+  con GNSS válido e IMU disponible pero sin HAS, parpadeo de **600 ms**
+  (300 ms encendido/300 ms apagado); con HAS activo e IMU disponible, fijo.
+- **LED2 / D6**: apagado en `MOVING`; parpadeo de **400 ms**
+  (200 ms encendido/200 ms apagado) en `AVERAGING`; fijo en `LOCKED` solo si
+  `lockedValid` es verdadero; apagado en cualquier otro caso.
 
 Calibración: `EEPROM.begin/get/put/commit` del core, en el sector de flash
 reservado por Arduino-Pico; no usa FlashStorage SAMD ni SPI del shield.
@@ -481,7 +503,7 @@ Con fix quality de salida según el estado:
 7. En `LOCKED` transmite la posición corregida; si no hay bloqueo, transmite instantánea con offset si hay yaw.
 8. Emite `$GCGGA` por D2 hacia el Dynatest a 10 Hz.
 9. Envía la misma trama por Ethernet.
-10. Publica diagnóstico por BLE cada 5 s y atiende comandos interactivos.
+10. En Rev.4.0 (sin BLE), publica `[HEALTH]` por USB cada 5 s y atiende comandos TCP (`status`, `imu`, `com2`, `diag on/off`); ver [Diagnóstico de ejecución](#diagnóstico-de-ejecución-revisión-para-obtener-datos). El diagnóstico BLE corresponde a la base histórica Rev.2.x.
 
 ---
 
