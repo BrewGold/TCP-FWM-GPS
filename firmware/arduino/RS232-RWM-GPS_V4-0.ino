@@ -48,6 +48,7 @@
 #include <EEPROM.h>
 #include <SerialPIO.h>
 #include "ICM_20948.h"
+#include <SPI.h>
 #include <Ethernet.h>
 #include <hardware/sync.h>
 #include <pico/time.h>
@@ -2262,6 +2263,17 @@ void addNmeaChecksumAndCrlf(
 bool initializeEthernet() {
   pinMode(SD_CS_PIN, OUTPUT);
   digitalWrite(SD_CS_PIN, HIGH);
+
+  // Opcional, antes de SPI.begin(): ICSP Metro RP2040 (ya son los defaults).
+  // SPI.setRX(20);   // MISO
+  // SPI.setTX(19);   // MOSI
+  // SPI.setSCK(18);
+  // SPI no expone getters; sin remapeo, usa estos defaults de la variante.
+  usbLog.printf("[SPI] pins -> MISO:%u MOSI:%u SCK:%u CS:%u (GPIO, core defaults)\n",
+    (unsigned)PIN_SPI0_MISO, (unsigned)PIN_SPI0_MOSI,
+    (unsigned)PIN_SPI0_SCK, (unsigned)ETHERNET_CS_PIN);
+  // Dar tiempo al servicio USB existente sin esperar al monitor ni hacer flush.
+  delay(20);
 
   Ethernet.init(ETHERNET_CS_PIN);
 
