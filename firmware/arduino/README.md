@@ -1,13 +1,83 @@
 # Firmware Arduino
 
-Este directorio contiene el firmware del sistema GNSS FWD para Adafruit Metro M4
-y las revisiones históricas para Arduino UNO R4 WiFi.
+Este directorio contiene el firmware del sistema GNSS FWD para Adafruit Metro RP2040
+y las revisiones históricas para Metro M4 y Arduino UNO R4 WiFi.
 
 ## Versión actual
 
-- `RS232-RWM-GPS_V3-0.ino` — **Rev.3.0 TCP sin BLE, Metro M4**
+- `RS232-RWM-GPS_V4-0.ino` — **Rev.4.0 TCP sin BLE, Metro RP2040**
 
-### Rev.3.0: Metro M4 y COM2 por UART hardware
+### Rev.4.0: Metro RP2040, shield sin cambios
+
+Base completa: `RS232-RWM-GPS_V3-0.ino`, conservada sin modificaciones.
+Se mantienen GGA/RMC, HAS/fix 5, MOVING/AVERAGING/LOCKED, corrección de antena,
+calibración yaw/magnetómetro y todos los comandos TCP de Rev.3.0.
+
+| Función | Pin del shield | Recurso Metro RP2040 |
+|---|---|---|
+| GNSS UM980 | D0 RX / D1 TX, 115200 | `Serial1`, UART0 (GPIO1 RX / GPIO0 TX) |
+| FWD/COM2 TX | **D2**, 38400/8N1 | `SerialPIO`, GPIO2, RX=`NOPIN` |
+| LEDs | D5/D6 | GPIO5/GPIO6 |
+| IMU | SDA/SCL, 100 kHz, 0x69/0x68 | `Wire`, GPIO16/GPIO17 |
+| W5500 | SPI ICSP, CS D10 | `SPI`, SCK GPIO18 / MOSI GPIO19 / MISO GPIO20 |
+| SD del shield | CS D4 en HIGH | Deshabilitada |
+
+**No mover FWD a D7.** D2 no es TX de UART hardware RP2040: PIO genera los
+bits en ese mismo pin. La cola de una trama se vacía al FIFO PIO sin bloquear
+ni exigir que el FIFO de ocho bytes contenga toda la trama. Si la anterior
+sigue pendiente, se descarta la nueva completa, sin mezclar tramas.
+`com2BytesSent` cuenta bytes aceptados por PIO; `com2FramesSent` y
+`com2LastFrameMs` avanzan al aceptar el último byte. No confirman recepción FWD
+ni finalización física del último bit.
+
+**Switch RX/TX de Metro RP2040:** seleccionar la posición que conecta
+**D0 del shield a RX (GPIO1) y D1 a TX (GPIO0)**, no D0=TX/D1=RX.
+El switch sí intercambia esos dos contactos; no afecta D2/FWD.
+Se conservan los pines UART0 predeterminados del core, sin reasignarlos.
+Ver [guía de Metro RP2040](https://learn.adafruit.com/adafruit-metro-rp2040/pinouts)
+y [variante Arduino-Pico](https://github.com/earlephilhower/arduino-pico/blob/master/variants/adafruit_metro/pins_arduino.h).
+Toda la lógica es **3.3 V, no tolerante a 5 V**; verificar señales y pull-ups.
+No conectar el nivel RS232 directamente a D2: usar MAX3232.
+
+Ethernet mantiene DHCP, respaldo `192.168.1.22/24`, NMEA **15919** y diagnóstico
+**15920**. El diagnóstico utiliza una cola acotada de 4096 bytes, conserva
+escrituras parciales y cierra el cliente si la cola se desborda. Los informes
+formateados rechazan truncamiento; los comandos demasiado largos se descartan
+hasta fin de línea, sin ejecutar su sufijo.
+
+Calibración: `EEPROM.begin/get/put/commit` del core, en el sector de flash
+reservado por Arduino-Pico; no usa FlashStorage SAMD ni SPI del shield.
+Se mantienen el formato, magic y validación de valores finitos. Recalibrar
+al migrar; no se importan datos de otras placas. Guardar solo mediante
+`magcal stop/reset` o `yawoff`, nunca periódicamente, para evitar desgaste.
+La calibración sobrevive reinicios; borrar toda la flash la elimina.
+
+#### Instalación y compilación
+
+En Arduino IDE 2.x, añadir al gestor de placas:
+`https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json`.
+Instalar **Raspberry Pi Pico/RP2040/RP2350 de Earle F. Philhower** y seleccionar
+**Adafruit Metro RP2040** (no el core Arduino Mbed, UNO R4 ni Metro M4).
+Instalar **Ethernet 2.0.2** y **SparkFun ICM-20948 Arduino Library 1.3.2**.
+`SerialPIO`, `EEPROM`, `Wire` y `SPI` están incluidos en el core.
+Abrir Rev.4 en una carpeta propia `RS232-RWM-GPS_V4-0`; no agrupar revisiones.
+
+Desde la raíz del repositorio, con Arduino CLI y las bibliotecas instaladas:
+
+```sh
+arduino-cli core install rp2040:rp2040 --additional-urls https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
+mkdir -p /tmp/RS232-RWM-GPS_V4-0
+cp "$PWD/firmware/arduino/RS232-RWM-GPS_V4-0.ino" /tmp/RS232-RWM-GPS_V4-0/
+arduino-cli compile --fqbn rp2040:rp2040:adafruit_metro --warnings all /tmp/RS232-RWM-GPS_V4-0
+```
+
+Validación en banco pendiente: comprobar D2 con analizador a 38400/8N1,
+checksum/CRLF y contadores a 1/10 Hz bajo carga GNSS/I2C/TCP; verificar
+switch GNSS, ICM-20948 y W5500 simultáneamente; probar `status`, `imu`,
+`com2`, `help`, `magcal start/stop/reset`, `yawoff`, `freq`, `diag on/off`,
+clientes lentos/desconectados, comandos largos y persistencia tras reinicio.
+
+### Rev.3.0 (histórica): Metro M4 y COM2 por UART hardware
 
 Base: `RS232-RWM-GPS_V2-8.ino`, conservada sin modificaciones. Se migra de
 RA4M1 a **SAMD51 Cortex-M4 a 120 MHz** para evitar la dependencia del core
