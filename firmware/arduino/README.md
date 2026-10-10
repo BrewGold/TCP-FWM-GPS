@@ -50,6 +50,26 @@ hasta fin de línea, sin ejecutar su sufijo.
 
 #### Diagnóstico de ejecución (revisión para obtener datos)
 
+Antes de `Ethernet.init()`, USB registra
+`[SPI] pins -> MISO:20 MOSI:19 SCK:18 CS:10 (GPIO, core defaults)`.
+Son números **GPIO RP2040**, no posiciones del conector. Las macros
+`PIN_SPI0_MISO/MOSI/SCK` de la
+[variante Arduino-Pico](https://github.com/earlephilhower/arduino-pico/blob/928fc6908e38698f8fe8d03935afc1ee532e9775/variants/adafruit_metro/pins_arduino.h#L17-L21)
+son las usadas para construir `SPI`; no hay getters públicos de pines.
+Comparar con el [pinout oficial de Adafruit](https://github.com/adafruit/Adafruit-Metro-RP2040-PCB/blob/9fe571ea428c5c2bc1b7593dadf61e8ef804f480/Adafruit%20Metro%20RP2040%20Pinout.pdf):
+el [esquemático oficial](https://github.com/adafruit/Adafruit-Metro-RP2040-PCB/blob/9fe571ea428c5c2bc1b7593dadf61e8ef804f480/Adafruit%20Metro%20RP2040.sch)
+conecta ICSP 1=MISO/GPIO20, 3=SCK/GPIO18 y 4=MOSI/GPIO19.
+**Los defaults coinciden con ICSP**, por lo que no se remapean; CS D10 es
+seleccionado por `Ethernet.init()`, no el SS GPIO23 de la variante.
+El sketch incluye un ejemplo comentado `SPI.setRX/setTX/setSCK` antes del
+inicio del bus. Si se activa con otros pines, actualizar también el diagnóstico:
+las macros muestran defaults, no cambios hechos mediante setters.
+Ethernet 2.0.2 llama a `SPI.begin()` en
+[`W5100Class::init()`](https://github.com/arduino-libraries/Ethernet/blob/2.0.2/src/utility/w5100.cpp#L92-L115).
+Una espera cooperativa de 20 ms da salida a la cola USB antes de Ethernet,
+sin `flush()` ni esperar al monitor; conectar el monitor antes del arranque.
+Estos valores no demuestran comunicación con el W5500 ni enlace Ethernet.
+
 USB emite un resumen `[HEALTH]` cada 5 segundos, independiente de `diag on/off`.
 Todos los mensajes USB pasan por una cola de 4096 bytes: se vacía como máximo
 64 bytes por servicio y solo hasta `Serial.availableForWrite()`, sin `flush()`
