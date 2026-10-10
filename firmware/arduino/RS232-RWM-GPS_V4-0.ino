@@ -31,7 +31,8 @@
   - Switch RX/TX: D0=RX, D1=TX para el shield (GPIO1 RX, GPIO0 TX).
   - Calibración en flash interna mediante EEPROM emulada del core.
   - Cola de diagnóstico acotada; no se ejecutan comandos truncados.
-  - Se conservan IP fija de respaldo 192.168.1.22 y lógica de Rev.2.8.
+  - IP fija 192.168.1.22 sin DHCP; se conserva lógica de Rev.2.8.
+  - Resumen USB cada 5 s y contadores de salud sin esperar por USB.
 
   LIBRERÍAS:
   - SparkFun ICM-20948 Arduino Library
@@ -113,6 +114,8 @@
 // ============================================================================
 
 void debugPrintf(const char* format, ...);
+void serviceUSBLog();
+void sendHealthDiagnostic(bool usb);
 
 void initializeCOM2();
 void serviceCOM2();
@@ -193,6 +196,30 @@ uint32_t com2BytesSent = 0;
 uint32_t com2FramesSent = 0;
 uint32_t com2LastFrameMs = 0;
 uint32_t com2FramesDropped = 0;
+uint32_t com2FramesEnqueued = 0;
+uint32_t com2PartialWrites = 0;
+uint32_t com2WriteFailures = 0;
+const char* com2LastReason = "not-initialized";
+uint32_t gnssBytesReceived = 0;
+uint32_t ggaValidCount = 0, ggaInvalidCount = 0;
+uint32_t rmcValidCount = 0, rmcInvalidCount = 0;
+uint32_t gnssOverflowCount = 0, outputSuppressedCount = 0;
+const char* ggaLastReason = "no-GGA";
+const char* rmcLastReason = "no-RMC";
+const char* outputLastReason = "no-GNSS-data";
+uint32_t imuReadyCount = 0, imuNotReadyCount = 0;
+uint32_t imuSampleCount = 0, imuReadFailures = 0, imuTimeoutCount = 0;
+uint32_t lastImuSampleMs = 0;
+const char* imuLastReason = "not-initialized";
+double rawMagX = NAN, rawMagY = NAN, rawMagZ = NAN;
+uint32_t ethAcceptedCount = 0, ethPartialCount = 0, ethFailedCount = 0;
+uint32_t ethBytesAccepted = 0, ethNoClientCount = 0, ethDisconnectedCount = 0;
+uint32_t ethRejectedClients = 0;
+const char* ethLastReason = "not-initialized";
+EthernetHardwareStatus ethHardware = EthernetNoHardware;
+EthernetLinkStatus ethLink = Unknown;
+uint32_t lastUSBHealthMs = 0;
+char lastNmeaFrame[240] = "";
 bool gnssStarted = false;
 bool gnssReading = false;
 
@@ -213,6 +240,7 @@ size_t com2FrameIndex = 0;
 void initializeCOM2() {
   com2Serial.begin(COM2_BAUD, SERIAL_8N1);
   com2Ready = (bool)com2Serial;
+  com2LastReason = com2Ready ? "idle" : "PIO-init-failed";
   debugPrintf(
     "[COM2] D%d a %d bps, UART PIO TX-only: %s\n",
     COM2_TX_PIN,
@@ -227,8 +255,15 @@ void serviceCOM2() {
   }
 
   int available = com2Serial.availableForWrite();
+  size_t startIndex = com2FrameIndex;
+  if (available <= 0) {
+    com2LastReason = "FIFO-full";
+    return;
+  }
   while (available-- > 0 && com2FrameIndex < com2FrameLength) {
     if (com2Serial.write((uint8_t)com2Frame[com2FrameIndex]) != 1) {
+      com2WriteFailures++;
+      com2LastReason = "PIO-write-failed";
       return;
     }
     com2FrameIndex++;
@@ -240,6 +275,10 @@ void serviceCOM2() {
     com2LastFrameMs = millis();
     com2FrameLength = 0;
     com2FrameIndex = 0;
+    com2LastReason = "frame-accepted-by-PIO";
+  } else if (com2FrameIndex > startIndex) {
+    com2PartialWrites++;
+    com2LastReason = "partial-FIFO-drain";
   }
 }
 
@@ -402,15 +441,123 @@ int gnssLineIndex = 0;
 // DIAGNÓSTICO USB
 // ============================================================================
 
+// Print-compatible queue: producers never wait for USB or invoke yield().
+class USBLog : public Print {
+public:
+  char queue[4096];
+  size_t head = 0;
+  size_t length = 0;
+  uint32_t droppedBytes = 0;
+  bool servicing = false;
+
+  size_t write(uint8_t value) override {
+    return write(&value, 1);
+  }
+
+  size_t write(const uint8_t* data, size_t count) override {
+    if (__get_current_exception() != 0) {
+      return 0;
+    }
+    if (count > sizeof(queue) - length) {
+      droppedBytes += count;
+      return 0;
+    }
+    for (size_t i = 0; i < count; i++) {
+      queue[(head + length + i) % sizeof(queue)] = (char)data[i];
+    }
+    length += count;
+    return count;
+  }
+};
+
+USBLog usbLog;
+
+void serviceUSBLog() {
+  if (usbLog.servicing || __get_current_exception() != 0) {
+    return;
+  }
+  if (!Serial) {
+    usbLog.head = 0;
+    usbLog.length = 0;
+    return;
+  }
+  int available = Serial.availableForWrite();
+  if (available <= 0 || usbLog.length == 0) {
+    return;
+  }
+  size_t length = usbLog.length;
+  if (length > 64) length = 64;
+  if (length > (size_t)available) length = (size_t)available;
+  if (length > sizeof(usbLog.queue) - usbLog.head) {
+    length = sizeof(usbLog.queue) - usbLog.head;
+  }
+  usbLog.servicing = true;
+  size_t written = Serial.write((const uint8_t*)usbLog.queue + usbLog.head, length);
+  usbLog.head = (usbLog.head + written) % sizeof(usbLog.queue);
+  usbLog.length -= written;
+  usbLog.servicing = false;
+}
+
 void debugPrintf(const char* format, ...) {
-  char buffer[320];
+  char buffer[512];
 
   va_list arguments;
   va_start(arguments, format);
-  vsnprintf(buffer, sizeof(buffer), format, arguments);
+  int length = vsnprintf(buffer, sizeof(buffer), format, arguments);
   va_end(arguments);
 
-  Serial.print(buffer);
+  if (length < 0 || (size_t)length >= sizeof(buffer)) {
+    usbLog.droppedBytes += length > 0 ? (uint32_t)length : 1;
+    return;
+  }
+  usbLog.print(buffer);
+}
+
+void sendHealthDiagnostic(bool usb) {
+  uint32_t now = millis();
+  if (usb) {
+    if (now - lastUSBHealthMs < TCP_DIAGNOSTIC_PERIOD_MS) return;
+    lastUSBHealthMs = now;
+    if (!Serial) return;
+  }
+  void (*report)(const char*, ...) = usb ? debugPrintf : sendDiagPrintf;
+  uint8_t clients = 0;
+  for (uint8_t i = 0; i < NMEA_CLIENT_COUNT; i++) {
+    if (nmeaClients[i].connected()) clients++;
+  }
+  report("[HEALTH] uptime=%lu USB_drop_bytes=%lu\r\n",
+    (unsigned long)now, (unsigned long)usbLog.droppedBytes);
+  report("[GNSS] bytes=%lu GGA_ok/bad=%lu/%lu last=%s age=%lu "
+    "RMC_ok/bad=%lu/%lu last=%s age=%lu overflow=%lu valid=%d suppressed=%lu reason=%s\r\n",
+    (unsigned long)gnssBytesReceived, (unsigned long)ggaValidCount,
+    (unsigned long)ggaInvalidCount, ggaLastReason, (unsigned long)(now - lastGgaMs),
+    (unsigned long)rmcValidCount, (unsigned long)rmcInvalidCount, rmcLastReason,
+    (unsigned long)(now - lastRmcMs), (unsigned long)gnssOverflowCount,
+    gnssValid, (unsigned long)outputSuppressedCount, outputLastReason);
+  report("[IMU] available=%d ready/not=%lu/%lu AGMT=%lu failures=%lu timeouts=%lu "
+    "sample_age=%lu MAGraw=%.2f,%.2f,%.2f heading=%.1f yaw=%.1f cal=%d reason=%s\r\n",
+    imuAvailable, (unsigned long)imuReadyCount, (unsigned long)imuNotReadyCount,
+    (unsigned long)imuSampleCount, (unsigned long)imuReadFailures,
+    (unsigned long)imuTimeoutCount, (unsigned long)(now - lastImuSampleMs),
+    rawMagX, rawMagY, rawMagZ, magHeading, currentYaw, magCalValid, imuLastReason);
+  report("[COM2] D2 TX-only ready=%d enqueued=%lu PIO_frames=%lu PIO_bytes=%lu "
+    "partial_drains=%lu write_failures=%lu dropped=%lu pending=%u reason=%s\r\n",
+    com2Ready, (unsigned long)com2FramesEnqueued, (unsigned long)com2FramesSent,
+    (unsigned long)com2BytesSent, (unsigned long)com2PartialWrites,
+    (unsigned long)com2WriteFailures, (unsigned long)com2FramesDropped,
+    (unsigned int)(com2FrameLength - com2FrameIndex), com2LastReason);
+  report("[ETH] hw=%s link=%s ready=%d NMEA_clients=%u diag=%d accepted=%lu "
+    "bytes=%lu partial=%lu failed=%lu no_client=%lu disconnected=%lu rejected_clients=%lu reason=%s\r\n",
+    ethHardware == EthernetNoHardware ? "none" :
+      (ethHardware == EthernetW5500 ? "W5500" : "other"),
+    ethLink == LinkON ? "on" : (ethLink == LinkOFF ? "off" : "unknown"),
+    ethernetReady, clients, diagClient.connected(),
+    (unsigned long)ethAcceptedCount, (unsigned long)ethBytesAccepted,
+    (unsigned long)ethPartialCount, (unsigned long)ethFailedCount,
+    (unsigned long)ethNoClientCount, (unsigned long)ethDisconnectedCount,
+    (unsigned long)ethRejectedClients, ethLastReason);
+  report("[NMEA latest generated, not delivery confirmation] %s",
+    lastNmeaFrame[0] ? lastNmeaFrame : "none\r\n");
 }
 
 // ============================================================================
@@ -809,7 +956,7 @@ bool parseGGA(const char* line) {
   }
 
   if (!validateNmeaChecksum(line)) {
-    Serial.println("[GNSS] Error checksum GGA");
+    ggaLastReason = "checksum";
     return false;
   }
 
@@ -834,6 +981,7 @@ bool parseGGA(const char* line) {
   }
 
   if (fieldCount < 10) {
+    ggaLastReason = "missing-fields";
     return false;
   }
 
@@ -841,6 +989,7 @@ bool parseGGA(const char* line) {
   inputFixQuality = fixQuality;
 
   if (fixQuality < 1) {
+    ggaLastReason = "fix-invalid";
     gnssValid = false;
     return false;
   }
@@ -849,16 +998,19 @@ bool parseGGA(const char* line) {
   double longitude = 0.0;
 
   if (!parseLatitude(fields[2], fields[3], &latitude)) {
+    ggaLastReason = "latitude";
     return false;
   }
 
   if (!parseLongitude(fields[4], fields[5], &longitude)) {
+    ggaLastReason = "longitude";
     return false;
   }
 
   double altitude = strtod(fields[9], nullptr);
 
   if (!isfinite(altitude)) {
+    ggaLastReason = "altitude";
     return false;
   }
 
@@ -933,6 +1085,7 @@ bool parseGGA(const char* line) {
   currentAlt = altitude;
 
   gnssValid = true;
+  ggaLastReason = "valid";
   lastGgaMs = millis();
 
   return true;
@@ -948,7 +1101,7 @@ bool parseRMC(const char* line) {
   }
 
   if (!validateNmeaChecksum(line)) {
-    Serial.println("[GNSS] Error checksum RMC");
+    rmcLastReason = "checksum";
     return false;
   }
 
@@ -973,10 +1126,12 @@ bool parseRMC(const char* line) {
   }
 
   if (fieldCount < 9) {
+    rmcLastReason = "missing-fields";
     return false;
   }
 
   if (fields[2][0] != 'A') {
+    rmcLastReason = "status-not-A";
     return false;
   }
 
@@ -984,6 +1139,7 @@ bool parseRMC(const char* line) {
   double course = strtod(fields[8], nullptr);
 
   if (!isfinite(speedKnots)) {
+    rmcLastReason = "speed-invalid";
     return false;
   }
 
@@ -996,6 +1152,7 @@ bool parseRMC(const char* line) {
   }
 
   lastRmcMs = millis();
+  rmcLastReason = "valid";
 
   return true;
 }
@@ -1017,13 +1174,15 @@ void processGnssLine(const char* line) {
     strncmp(line, "$GNGGA", 6) == 0 ||
     strncmp(line, "$GCGGA", 6) == 0
   ) {
-    parseGGA(line);
+    if (parseGGA(line)) ggaValidCount++;
+    else ggaInvalidCount++;
   } else if (
     strncmp(line, "$GPRMC", 6) == 0 ||
     strncmp(line, "$GNRMC", 6) == 0 ||
     strncmp(line, "$GCRMC", 6) == 0
   ) {
-    parseRMC(line);
+    if (parseRMC(line)) rmcValidCount++;
+    else rmcInvalidCount++;
   }
 }
 
@@ -1036,6 +1195,7 @@ void readGNSS() {
   gnssReading = true;
   while (Serial1.available() > 0) {
     char character = (char)Serial1.read();
+    gnssBytesReceived++;
 
     if (
       character == '$' ||
@@ -1069,7 +1229,7 @@ void readGNSS() {
     ) {
       gnssLine[gnssLineIndex++] = character;
     } else {
-      Serial.println("[GNSS] Línea demasiado larga");
+      gnssOverflowCount++;
       gnssLineIndex = 0;
     }
   }
@@ -1080,6 +1240,7 @@ void yield() {
   // Ethernet libera SPI antes de yield(); no acceder a SPI desde aquí.
   readGNSS();
   serviceCOM2();
+  serviceUSBLog();
 }
 
 // Arduino-Pico delay() no llama a yield(); atender GNSS/PIO durante las esperas.
@@ -1130,7 +1291,7 @@ void loadMagCalibration() {
 
     magCalValid = false;
 
-    Serial.println(
+    usbLog.println(
       "[IMU] Sin calibración en flash"
     );
   }
@@ -1144,11 +1305,11 @@ void saveMagCalibration() {
 
   EEPROM.put(0, magCal);
   if (!EEPROM.commit()) {
-    Serial.println("[IMU] Error guardando calibracion");
+    usbLog.println("[IMU] Error guardando calibracion");
     return;
   }
 
-  Serial.println(
+  usbLog.println(
     "[IMU] Calibración guardada en flash"
   );
 }
@@ -1165,7 +1326,7 @@ void startMagCalibration() {
   magMaxY = -1e9;
   magMaxZ = -1e9;
 
-  Serial.println("[IMU] Calibración iniciada");
+  usbLog.println("[IMU] Calibración iniciada");
 }
 
 bool stopMagCalibration() {
@@ -1233,12 +1394,13 @@ bool initializeICM20948() {
   } else if (probeI2C(ICM_ADDRESS_SECONDARY)) {
     address = ICM_ADDRESS_SECONDARY;
   } else {
-    Serial.println(
+    usbLog.println(
       "[IMU] ICM-20948 no responde "
       "en 0x69 ni 0x68"
     );
 
     imuAvailable = false;
+    imuLastReason = "I2C-no-response";
     return false;
   }
 
@@ -1254,6 +1416,7 @@ bool initializeICM20948() {
     );
 
     imuAvailable = false;
+    imuLastReason = "init-failed";
     return false;
   }
 
@@ -1264,6 +1427,8 @@ bool initializeICM20948() {
   currentYaw = NAN;
 
   lastImuDataMs = millis();
+  lastImuSampleMs = lastImuDataMs;
+  imuLastReason = "waiting-AGMT";
   lastImuMicros = micros();
 
   debugPrintf(
@@ -1337,7 +1502,7 @@ double readYaw() {
     ) {
       lastImuRetryMs = now;
 
-      Serial.println(
+      usbLog.println(
         "[IMU] Reintentando ICM-20948"
       );
 
@@ -1347,13 +1512,21 @@ double readYaw() {
     return NAN;
   }
 
-  if (icm.dataReady()) {
+  bool ready = icm.dataReady();
+  if (icm.status != ICM_20948_Stat_Ok && icm.status != ICM_20948_Stat_NoData) {
+    imuReadFailures++;
+    imuLastReason = "dataReady-read-failed";
+  }
+  if (ready) {
+    imuReadyCount++;
     icm.getAGMT();
 
     if (
       icm.status !=
       ICM_20948_Stat_Ok
     ) {
+      imuReadFailures++;
+      imuLastReason = "AGMT-read-failed";
       debugPrintf(
         "[IMU] Error de lectura: %s\n",
         icm.statusString()
@@ -1374,6 +1547,12 @@ double readYaw() {
     double rawMz = -icm.magZ();
 
     double rawGz = icm.gyrZ();
+    imuSampleCount++;
+    lastImuSampleMs = now;
+    rawMagX = rawMx;
+    rawMagY = rawMy;
+    rawMagZ = rawMz;
+    imuLastReason = "AGMT-ok";
 
     imuTempC = icm.temp();
 
@@ -1474,22 +1653,31 @@ double readYaw() {
         );
 
       lastImuDataMs = now;
+      imuLastReason = magCalValid ? "heading-ok" : "heading-uncalibrated";
+    } else {
+      imuLastReason = "AGMT-ok-heading-invalid";
     }
 
-    return currentYaw;
+    // Check heading freshness even when AGMT continues returning samples.
+  } else {
+    imuNotReadyCount++;
+    if (icm.status == ICM_20948_Stat_NoData) imuLastReason = "not-data-ready";
   }
 
   if (
     now - lastImuDataMs >=
     IMU_TIMEOUT_MS
   ) {
+    imuTimeoutCount++;
+    imuLastReason = now - lastImuSampleMs >= IMU_TIMEOUT_MS
+      ? "AGMT-timeout" : "heading-timeout";
     if (
       now - lastImuMessageMs >=
       IMU_RETRY_MS
     ) {
       lastImuMessageMs = now;
 
-      Serial.println(
+      usbLog.println(
         "[IMU] Timeout ICM-20948"
       );
     }
@@ -1561,7 +1749,7 @@ void applyAntennaOffset(
 void startupLedTest() {
   uint32_t startMs = millis();
 
-  Serial.println(
+  usbLog.println(
     "[LED] Prueba de arranque 5 segundos"
   );
 
@@ -1592,7 +1780,7 @@ void startupLedTest() {
   digitalWrite(LED1_PIN, LOW);
   digitalWrite(LED2_PIN, LOW);
 
-  Serial.println(
+  usbLog.println(
     "[LED] Fin prueba de arranque"
   );
 }
@@ -1749,7 +1937,7 @@ void updateMovementState() {
 
         clearAverageBuffers();
 
-        Serial.println(
+        usbLog.println(
           "[STATE] MOVING -> AVERAGING"
         );
       }
@@ -1796,7 +1984,7 @@ void updateMovementState() {
 
         clearAverageBuffers();
 
-        Serial.println(
+        usbLog.println(
           "[STATE] AVERAGING -> MOVING"
         );
 
@@ -1846,7 +2034,7 @@ void updateMovementState() {
 
           clearAverageBuffers();
 
-          Serial.println(
+          usbLog.println(
             "[STATE] Error en promedio"
           );
 
@@ -1901,7 +2089,7 @@ void updateMovementState() {
 
         clearAverageBuffers();
 
-        Serial.println(
+        usbLog.println(
           "[STATE] LOCKED -> MOVING velocidad"
         );
 
@@ -2077,44 +2265,31 @@ bool initializeEthernet() {
 
   Ethernet.init(ETHERNET_CS_PIN);
 
-  Serial.println(
+  usbLog.println(
     "[ETH] Inicializando Ethernet"
   );
 
-  int dhcpResult =
-    Ethernet.begin(ethernetMac);
-
-  if (dhcpResult == 0) {
-    Serial.println(
-      "[ETH] DHCP no disponible, usando IP fija: 192.168.1.22"
-    );
-
-    IPAddress fallbackIP(192, 168, 1, 22);
-    IPAddress dns(192, 168, 1, 1);
-    IPAddress gateway(192, 168, 1, 1);
-    IPAddress subnet(255, 255, 255, 0);
-    Ethernet.begin(
-      ethernetMac,
-      fallbackIP,
-      dns,
-      gateway,
-      subnet
-    );
-  } else {
-    Serial.print("[ETH] IP asignada por DHCP: ");
-    Serial.println(Ethernet.localIP());
-  }
+  IPAddress staticIP(192, 168, 1, 22);
+  IPAddress dns(192, 168, 1, 1);
+  IPAddress gateway(192, 168, 1, 1);
+  IPAddress subnet(255, 255, 255, 0);
+  Ethernet.begin(ethernetMac, staticIP, dns, gateway, subnet);
+  usbLog.println("[ETH] IP fija: 192.168.1.22 (sin DHCP)");
 
   nmeaServer.begin();
   diagServer.begin();
-  Serial.print("[ETH] Servidor NMEA TCP en puerto ");
-  Serial.println(NMEA_TCP_PORT);
-  Serial.print("[ETH] Servidor de diagnostico TCP en puerto ");
-  Serial.println(DIAG_TCP_PORT);
+  usbLog.print("[ETH] Servidor NMEA TCP en puerto ");
+  usbLog.println(NMEA_TCP_PORT);
+  usbLog.print("[ETH] Servidor de diagnostico TCP en puerto ");
+  usbLog.println(DIAG_TCP_PORT);
 
-  ethernetReady = true;
+  ethHardware = Ethernet.hardwareStatus();
+  ethLink = Ethernet.linkStatus();
+  ethernetReady = ethHardware != EthernetNoHardware && ethLink != LinkOFF;
+  ethLastReason = ethernetReady ? "ready" :
+    (ethHardware == EthernetNoHardware ? "no-hardware" : "link-off");
 
-  return true;
+  return ethernetReady;
 }
 
 void maintainEthernet() {
@@ -2128,14 +2303,17 @@ void maintainEthernet() {
   }
 
   lastEthernetCheckMs = now;
+  ethHardware = Ethernet.hardwareStatus();
+  ethLink = Ethernet.linkStatus();
 
   if (
-    Ethernet.hardwareStatus() ==
+    ethHardware ==
     EthernetNoHardware
   ) {
     ethernetReady = false;
 
-    Serial.println(
+    ethLastReason = "no-hardware";
+    usbLog.println(
       "[ETH] Shield no detectado"
     );
 
@@ -2143,12 +2321,13 @@ void maintainEthernet() {
   }
 
   if (
-    Ethernet.linkStatus() ==
+    ethLink ==
     LinkOFF
   ) {
     ethernetReady = false;
 
-    Serial.println(
+    ethLastReason = "link-off";
+    usbLog.println(
       "[ETH] Cable desconectado"
     );
 
@@ -2178,6 +2357,7 @@ void acceptTCPClients() {
     }
 
     if (!assigned) {
+      ethRejectedClients++;
       incomingNmea.stop();
     }
   }
@@ -2211,6 +2391,7 @@ void serviceTCPClients() {
 
   for (uint8_t i = 0; i < NMEA_CLIENT_COUNT; i++) {
     if (!nmeaClients[i].connected()) {
+      if (nmeaClients[i]) ethDisconnectedCount++;
       nmeaClients[i].stop();
     }
   }
@@ -2224,25 +2405,42 @@ void transmitEthernet(const char* sentence) {
     !ethernetReady ||
     sentence == nullptr
   ) {
+    ethDisconnectedCount++;
+    ethLastReason = ethHardware == EthernetNoHardware ? "no-hardware" : "not-ready";
     return;
   }
 
   size_t length = strlen(sentence);
+  uint8_t clients = 0;
 
   for (uint8_t i = 0; i < NMEA_CLIENT_COUNT; i++) {
     readGNSS();
-    if (
-      nmeaClients[i].connected() &&
-      (
-        nmeaClients[i].availableForWrite() < (int)length ||
-        nmeaClients[i].write(
-          (const uint8_t*)sentence,
-          length
-        ) != length
-      )
-    ) {
+    serviceCOM2();
+    if (!nmeaClients[i].connected()) continue;
+    clients++;
+    if (nmeaClients[i].availableForWrite() < (int)length) {
+      ethFailedCount++;
+      ethDisconnectedCount++;
+      ethLastReason = "client-TX-full";
+      nmeaClients[i].stop();
+      continue;
+    }
+    size_t written = nmeaClients[i].write((const uint8_t*)sentence, length);
+    ethBytesAccepted += written;
+    if (written == length) {
+      ethAcceptedCount++;
+      ethLastReason = "frame-accepted-by-socket";
+    } else {
+      if (written > 0) ethPartialCount++;
+      else ethFailedCount++;
+      ethDisconnectedCount++;
+      ethLastReason = written > 0 ? "partial-write" : "write-failed";
       nmeaClients[i].stop();
     }
+  }
+  if (clients == 0) {
+    ethNoClientCount++;
+    ethLastReason = "no-NMEA-client";
   }
 }
 
@@ -2635,21 +2833,24 @@ void processTCPCommand(const char* commandInput) {
       (char)tolower((unsigned char)start[i]);
   }
 
-  Serial.print("[TCP CMD] ");
-  Serial.println(start);
+  usbLog.print("[TCP CMD] ");
+  usbLog.println(start);
 
   if (strcmp(start, "status") == 0) {
     sendDiagStatus();
+    sendHealthDiagnostic(false);
     return;
   }
 
   if (strcmp(start, "imu") == 0) {
     sendDiagIMU();
+    sendHealthDiagnostic(false);
     return;
   }
 
   if (strcmp(start, "com2") == 0) {
     sendDiagCOM2();
+    sendHealthDiagnostic(false);
     return;
   }
 
@@ -2944,6 +3145,10 @@ void transmitGCGGA() {
     !gnssValid ||
     fixQuality < 1
   ) {
+    outputSuppressedCount++;
+    outputLastReason = gnssBytesReceived == 0 ? "no-GNSS-data" :
+      (ggaValidCount == 0 ? ggaLastReason :
+       (!gnssValid ? (inputFixQuality < 1 ? "fix-invalid" : "GGA-stale") : "output-fix-invalid"));
     return;
   }
 
@@ -2999,12 +3204,16 @@ void transmitGCGGA() {
 
   size_t sentenceLength =
     strlen(sentence);
+  memcpy(lastNmeaFrame, sentence, sentenceLength + 1);
+  outputLastReason = "frame-generated";
 
   // Encolar solo tramas completas; serviceCOM2 vacía el FIFO PIO sin bloquear.
   if (com2Ready && com2FrameLength == 0 && sentenceLength <= sizeof(com2Frame)) {
     memcpy(com2Frame, sentence, sentenceLength);
     com2FrameLength = sentenceLength;
     com2FrameIndex = 0;
+    com2FramesEnqueued++;
+    com2LastReason = "enqueued";
     lastOutputLat = outputLat;
     lastOutputLon = outputLon;
     lastOutputAlt = outputAlt;
@@ -3012,14 +3221,14 @@ void transmitGCGGA() {
     serviceCOM2();
   } else {
     com2FramesDropped++;
+    com2LastReason = !com2Ready ? "PIO-not-ready" :
+      (com2FrameLength != 0 ? "previous-frame-pending" : "frame-too-long");
   }
 
   // Ethernet W5500.
   transmitEthernet(sentence);
 
-  // Monitor USB.
-  Serial.print("[TX] ");
-  Serial.print(sentence);
+  // La última trama se muestra en el resumen USB, no a cada transmisión.
 }
 
 // ============================================================================
@@ -3031,35 +3240,35 @@ void setup() {
 
   delay(500);
 
-  Serial.println();
-  Serial.println(
+  usbLog.println();
+  usbLog.println(
     "=========================================="
   );
-  Serial.println(
+  usbLog.println(
     "RS232-FMW-GPS Rev.4.0 TCP sin BLE"
   );
-  Serial.println(
+  usbLog.println(
     "Adafruit Metro RP2040"
   );
-  Serial.println(
+  usbLog.println(
     "=========================================="
   );
-  Serial.println(
+  usbLog.println(
     "GNSS: Serial1 D0/D1 @ 115200"
   );
-  Serial.println(
+  usbLog.println(
     "COM2: D2 @ 38400, UART PIO TX-only"
   );
-  Serial.println(
+  usbLog.println(
     "Ethernet: W5500, NMEA TCP 15919, diagnostico TCP 15920"
   );
-  Serial.println(
+  usbLog.println(
     "IMU: ICM-20948 I2C"
   );
-  Serial.println(
+  usbLog.println(
     "HAS: detectado por fix 5 en GGA"
   );
-  Serial.println(
+  usbLog.println(
     "=========================================="
   );
 
@@ -3082,7 +3291,7 @@ void setup() {
   loadMagCalibration();
 
   if (!initializeICM20948()) {
-    Serial.println(
+    usbLog.println(
       "[SETUP] IMU no disponible; "
       "se reintentará"
     );
@@ -3093,12 +3302,12 @@ void setup() {
 
   // Ethernet W5500.
   if (!initializeEthernet()) {
-    Serial.println(
+    usbLog.println(
       "[SETUP] Ethernet no disponible"
     );
   }
 
-  Serial.println(
+  usbLog.println(
     "[SETUP] Sistema preparado"
   );
 }
@@ -3127,4 +3336,6 @@ void loop() {
   sendDiagPeriodicDiagnostic();
   serviceDiagQueue();
   serviceCOM2();
+  sendHealthDiagnostic(true);
+  serviceUSBLog();
 }
