@@ -49,6 +49,7 @@
 #include "ICM_20948.h"
 #include <Ethernet.h>
 #include <hardware/sync.h>
+#include <pico/time.h>
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
@@ -221,7 +222,7 @@ void initializeCOM2() {
 }
 
 void serviceCOM2() {
-  if (!com2Ready || com2FrameLength == 0) {
+  if (!com2Ready || com2FrameLength == 0 || __get_current_exception() != 0) {
     return;
   }
 
@@ -1079,6 +1080,15 @@ void yield() {
   // Ethernet libera SPI antes de yield(); no acceder a SPI desde aquí.
   readGNSS();
   serviceCOM2();
+}
+
+// Arduino-Pico delay() no llama a yield(); atender GNSS/PIO durante las esperas.
+void delay(unsigned long ms) {
+  uint32_t start = millis();
+  while (millis() - start < ms) {
+    yield();
+    sleep_ms(1);
+  }
 }
 
 // ============================================================================

@@ -26,6 +26,8 @@ calibración yaw/magnetómetro y todos los comandos TCP de Rev.3.0.
 bits en ese mismo pin. La cola de una trama se vacía al FIFO PIO sin bloquear
 ni exigir que el FIFO de ocho bytes contenga toda la trama. Si la anterior
 sigue pendiente, se descarta la nueva completa, sin mezclar tramas.
+Una implementación cooperativa de `delay()` mantiene GNSS y COM2 atendidos
+durante las esperas de IMU/DHCP (el `delay()` del core no llama a `yield()`).
 `com2BytesSent` cuenta bytes aceptados por PIO; `com2FramesSent` y
 `com2LastFrameMs` avanzan al aceptar el último byte. No confirman recepción FWD
 ni finalización física del último bit.
