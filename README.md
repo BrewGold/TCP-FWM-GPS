@@ -1,6 +1,6 @@
 # RS232-FWD-GPS
 
-Sistema GNSS para Dynatest FWD con receptor ArduSimple simpleRTK3B Budget (UM980) y controlador Adafruit Metro M4.
+Sistema GNSS para Dynatest FWD con receptor ArduSimple simpleRTK3B Budget (UM980) y controlador Adafruit Metro RP2040.
 
 ## Objetivo
 
@@ -10,17 +10,17 @@ Proporcionar al Dynatest FWD una posición GNSS mejorada mediante:
 - Promedio temporal de coordenadas durante la parada.
 - Corrección de offset antena-pistón mediante IMU (ICM-20948).
 - Presentación del estado GNSS mediante LEDs externos.
-- Diagnóstico y control por TCP Ethernet (sin BLE en Rev.3.0).
+- Diagnóstico y control por TCP Ethernet (sin BLE en Rev.4.0).
 
 ## Arquitectura (alto nivel)
 
 - **GNSS**: ArduSimple simpleRTK3B Budget (UM980) → Serial1 (D0/D1) @ 115200 bps
-- **MCU**: Adafruit Metro M4 (SAMD51, Cortex-M4 @ 120 MHz)
+- **MCU**: Adafruit Metro RP2040
 - **IMU**: SparkFun ICM-20948 → I2C (0x69/0x68)
-- **Salida FWD (COM2)**: UART hardware SERCOM4 TX-only en D7 @ 38400 bps, 8N1 ($GCGGA a 10 Hz)
+- **Salida FWD (COM2)**: UART PIO TX-only en **D2** @ 38400 bps, 8N1 ($GCGGA a 10 Hz)
 - **Ethernet**: Shield W5500 → servidores TCP NMEA (15919) y diagnóstico (15920)
   con DHCP o IP fija de respaldo `192.168.1.22`
-- **Diagnóstico**: comandos TCP por Ethernet (sin BLE en Rev.3.0)
+- **Diagnóstico**: comandos TCP por Ethernet (sin BLE en Rev.4.0)
 - **LEDs**: D5 (GNSS+IMU+HAS), D6 (Movimiento)
 
 Flujo principal:
@@ -31,7 +31,7 @@ Flujo principal:
 4. Detecta estado MOVING/AVERAGING/LOCKED mediante máquina de estados.
 5. En parada promedia coordenadas (15 s por defecto, media recortada 5%).
 6. Aplica offset antena-pistón (0.55 m, dirección yaw+270°).
-7. Emite $GCGGA corregida al FWD por D7 @ 38400 bps.
+7. Emite $GCGGA corregida al FWD por D2 @ 38400 bps.
 8. Sirve la trama por Ethernet TCP a los clientes conectados.
 9. El servidor TCP ofrece diagnóstico periódico y comandos interactivos.
 10. LEDs reflejan GNSS, IMU, HAS y movimiento/bloqueo.
@@ -44,7 +44,8 @@ Flujo principal:
 
 ## Estructura del repositorio
 
-- `firmware/arduino/RS232-RWM-GPS_V3-0.ino`: versión actual de firmware (Metro M4).
+- `firmware/arduino/RS232-RWM-GPS_V4-0.ino`: versión actual de firmware (Metro RP2040).
+- `firmware/arduino/RS232-RWM-GPS_V3-0.ino`: revisión histórica Metro M4.
 - `firmware/arduino/RS232-RWM-GPS_V2-9.ino`: puente temporal UNO R4, sin IMU/I2C.
 - `firmware/arduino/RS232-RWM-GPS_V2-8.ino`: última base UNO R4, conservada.
 - `firmware/arduino/README.md`: detalle técnico del firmware.
@@ -54,7 +55,18 @@ Flujo principal:
 
 ## Versiones
 
-### Rev.3.0 (Actual): migración a Metro M4
+### Rev.4.0 (Actual): Metro RP2040, FWD en D2
+
+- Conserva el shield: FWD D2, GNSS Serial1 D0/D1, LEDs D5/D6, IMU SDA/SCL,
+  W5500 SPI ICSP con CS D10 y SD CS D4 en HIGH.
+- Usa `SerialPIO` TX-only del core Arduino-Pico, sin Serial2/SERCOM ni APIs ESP32.
+- Switch RX/TX: **D0=RX / D1=TX** para el shield (GPIO1 RX / GPIO0 TX).
+  No afecta D2. No cambiar pines ni cableado.
+- Mantiene toda la lógica GNSS/HAS, movimiento/promedio/bloqueo, offset y
+  comandos TCP; calibración en EEPROM emulada y diagnóstico con cola acotada.
+- Instalación, compilación y validación en [README del firmware](firmware/arduino/README.md#rev40-metro-rp2040-shield-sin-cambios).
+
+### Rev.3.0 (histórica): migración a Metro M4
 
 - Se sustituye UNO R4 WiFi por **Adafruit Metro M4 (SAMD51)** para evitar el
   defecto del core Renesas descrito en [issue #543](https://github.com/arduino/ArduinoCore-renesas/issues/543):
@@ -215,14 +227,13 @@ SAVECONFIG
 
 - Arduino IDE 2.x+
 - Librería: `SparkFun ICM-20948 Arduino Library`
-- Plataforma: **Adafruit SAMD Boards**, placa **Adafruit Metro M4**
+- Plataforma: **Arduino-Pico de Earle Philhower**, placa **Adafruit Metro RP2040**
 - Librería: `Ethernet` (W5500)
-- Librería: `FlashStorage` con soporte SAMD51 (ver README de firmware)
-- `Wire`, `SPI` y `Uart` incluidos en el core; no se necesita ArduinoBLE
+- `EEPROM`, `SerialPIO`, `Wire` y `SPI` incluidos en el core; no se necesita ArduinoBLE
 
 ## Hardware requerido
 
-- Adafruit Metro M4 (lógica 3.3 V)
+- Adafruit Metro RP2040 (lógica 3.3 V, no tolera 5 V)
 - ArduSimple simpleRTK3B Budget (UM980)
 - SparkFun ICM-20948
 - W5500 Ethernet shield
