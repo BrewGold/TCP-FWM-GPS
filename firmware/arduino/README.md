@@ -27,7 +27,7 @@ bits en ese mismo pin. La cola de una trama se vacía al FIFO PIO sin bloquear
 ni exigir que el FIFO de ocho bytes contenga toda la trama. Si la anterior
 sigue pendiente, se descarta la nueva completa, sin mezclar tramas.
 Una implementación cooperativa de `delay()` mantiene GNSS y COM2 atendidos
-durante las esperas de IMU/DHCP (el `delay()` del core no llama a `yield()`).
+durante las esperas de IMU/Ethernet (el `delay()` del core no llama a `yield()`).
 `com2BytesSent` cuenta bytes aceptados por PIO; `com2FramesSent` y
 `com2LastFrameMs` avanzan al aceptar el último byte. No confirman recepción FWD
 ni finalización física del último bit.
@@ -41,11 +41,75 @@ y [variante Arduino-Pico](https://github.com/earlephilhower/arduino-pico/blob/ma
 Toda la lógica es **3.3 V, no tolerante a 5 V**; verificar señales y pull-ups.
 No conectar el nivel RS232 directamente a D2: usar MAX3232.
 
-Ethernet mantiene DHCP, respaldo `192.168.1.22/24`, NMEA **15919** y diagnóstico
+Ethernet usa siempre IP fija `192.168.1.22/24`, gateway/DNS `192.168.1.1`,
+sin DHCP, NMEA **15919** y diagnóstico
 **15920**. El diagnóstico utiliza una cola acotada de 4096 bytes, conserva
 escrituras parciales y cierra el cliente si la cola se desborda. Los informes
 formateados rechazan truncamiento; los comandos demasiado largos se descartan
 hasta fin de línea, sin ejecutar su sufijo.
+
+#### Diagnóstico de ejecución (revisión para obtener datos)
+
+USB emite un resumen `[HEALTH]` cada 5 segundos, independiente de `diag on/off`.
+Todos los mensajes USB pasan por una cola de 4096 bytes: se vacía como máximo
+64 bytes por servicio y solo hasta `Serial.availableForWrite()`, sin `flush()`
+ni esperar al monitor. Si se llena se pierden bytes de diagnóstico
+(`USB_drop_bytes`), nunca se espera por espacio. Sin monitor se limpia la cola;
+al reconectar, el siguiente resumen muestra el estado actual.
+Los comandos TCP `status`, `imu` y `com2` incluyen el mismo resumen.
+
+`[GNSS RAW-BAD-CHK] <línea>` aparece por USB solo cuando una GGA falla la
+validación de checksum, como máximo una vez cada 1000 ms. Muestra la línea
+recibida sin modificar, antes de separar campos (sin los terminadores CR/LF
+retirados por el lector; máximo 239 caracteres del buffer GNSS). Para comprobarla
+manualmente, calcular el XOR de los bytes entre `$` y `*`, excluyendo ambos,
+y comparar el resultado hexadecimal de dos dígitos con `XX` en `*XX`.
+Comparar también con una captura directa del UM980 permite investigar formato
+del receptor, buffer/parser o corrupción UART; esta línea no determina por sí
+sola la causa ni cambia la aceptación de GGA o la transmisión.
+
+- **GNSS:** bytes RX, GGA/RMC aceptadas y rechazadas, último motivo de cada
+  parser, edad en ms desde la última trama válida, líneas desbordadas y ciclos
+  de salida suprimidos. `no-GNSS-data`, `no-GGA`, `checksum`, `fix-invalid` o
+  `GGA-stale` distinguen ausencia de entrada/fix de un problema de TX. RMC no
+  es un requisito nuevo para transmitir; su edad permite detectar falta de velocidad.
+- **IMU:** consultas ready/not-ready, lecturas AGMT correctas, fallos y timeouts,
+  edad de muestra, MAG sin offsets/filtro (con la convención de ejes existente),
+  rumbo/yaw y calibración. AGMT aumenta incluso sin calibración o con rumbo
+  inválido. `heading-uncalibrated` no significa calibración correcta.
+  `heading-timeout` distingue muestras activas sin rumbo de `AGMT-timeout`;
+  la comprobación de frescura ya no se omite al recibir AGMT.
+  AGMT correcto no demuestra por sí solo muestras nuevas del magnetómetro:
+  comparar MAG al girar el conjunto.
+- **COM2:** tramas encoladas, tramas/bytes aceptados por el FIFO PIO,
+  vaciados parciales, fallos de escritura, descartes y bytes pendientes.
+  Un vaciado parcial es normal con FIFO pequeño; no es una trama descartada.
+- **Ethernet:** hardware/link, clientes NMEA y cliente diagnóstico, tramas
+  completas/bytes aceptados por sockets NMEA, parciales, fallos, ausencia de
+  clientes y desconexiones/no disponibilidad. Los contadores de escritura son
+  por cliente; sin espacio o con escritura incompleta se conserva el cierre
+  del cliente existente para no continuar una trama cortada.
+- **NMEA:** se muestra la última trama **generada**, con checksum, no una
+  confirmación de entrega. Puede ser antigua si GNSS deja de ser válido.
+
+Próximo banco: observar dos resúmenes sin fix, girar la IMU sin calibración,
+conectar un cliente NMEA a `192.168.1.22:15919`, comparar incrementos de COM2
+y Ethernet con entrada GGA válida, desconectar cable/cliente y cerrar el
+monitor USB. Verificar recepción real en el cliente y D2 con analizador:
+los retornos de PIO/socket no prueban recepción por FWD ni por el cliente.
+Esta revisión no da por estabilizado ni validado el hardware.
+
+#### LED1/LED2 en Rev.4.0
+
+Comportamiento de `updateLeds()` (los períodos son ciclos completos):
+
+- **LED1 / D5**, en orden de prioridad: apagado sin GNSS válido; con GNSS válido
+  e IMU no disponible, parpadeo de **200 ms** (100 ms encendido/100 ms apagado);
+  con GNSS válido e IMU disponible pero sin HAS, parpadeo de **600 ms**
+  (300 ms encendido/300 ms apagado); con HAS activo e IMU disponible, fijo.
+- **LED2 / D6**: apagado en `MOVING`; parpadeo de **400 ms**
+  (200 ms encendido/200 ms apagado) en `AVERAGING`; fijo en `LOCKED` solo si
+  `lockedValid` es verdadero; apagado en cualquier otro caso.
 
 Calibración: `EEPROM.begin/get/put/commit` del core, en el sector de flash
 reservado por Arduino-Pico; no usa FlashStorage SAMD ni SPI del shield.
@@ -439,7 +503,7 @@ Con fix quality de salida según el estado:
 7. En `LOCKED` transmite la posición corregida; si no hay bloqueo, transmite instantánea con offset si hay yaw.
 8. Emite `$GCGGA` por D2 hacia el Dynatest a 10 Hz.
 9. Envía la misma trama por Ethernet.
-10. Publica diagnóstico por BLE cada 5 s y atiende comandos interactivos.
+10. En Rev.4.0 (sin BLE), publica `[HEALTH]` por USB cada 5 s y atiende comandos TCP (`status`, `imu`, `com2`, `diag on/off`); ver [Diagnóstico de ejecución](#diagnóstico-de-ejecución-revisión-para-obtener-datos). El diagnóstico BLE corresponde a la base histórica Rev.2.x.
 
 ---
 
