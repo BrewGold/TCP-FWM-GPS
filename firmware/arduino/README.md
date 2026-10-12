@@ -57,6 +57,8 @@ Si se pierde el enlace, se suspenden los servicios TCP; al recuperarlo se
 reinicializa Ethernet reutilizando la última configuración IP, sin esperar DHCP
 ni enlace en runtime, con reintentos separados por backoff hasta 30 segundos.
 Los clientes anteriores se cierran con timeout acotado y deben reconectarse.
+Las esperas de detección de hardware mantienen la generación periódica COM2,
+sin acceder a Ethernet desde la espera cooperativa.
 Si cambia la configuración de red, reiniciar la placa para obtener DHCP de nuevo.
 
 Comprobación en banco: conectar el PC a la misma subred que la IP indicada por

@@ -166,6 +166,7 @@ EthernetClient nmeaClients[NMEA_CLIENT_COUNT];
 EthernetClient diagClient;
 
 bool ethernetReady = false;
+bool ethernetRecovering = false;
 uint32_t lastEthernetCheckMs = 0;
 uint32_t lastEthernetAttemptMs = 0;
 uint32_t ethernetRetryMs = ETHERNET_RETRY_INITIAL_MS;
@@ -1090,6 +1091,13 @@ void yield() {
   // Ethernet libera SPI antes de yield(); no acceder a SPI desde aquí.
   readGNSS();
   serviceCOM2();
+  static bool generatingFrame = false;
+  if (ethernetRecovering && !ethernetReady && !generatingFrame) {
+    generatingFrame = true;
+    updateMovementState();
+    transmitGCGGA(); // Ethernet deshabilitado: solo COM2 y USB.
+    generatingFrame = false;
+  }
 }
 
 // Arduino-Pico delay() no llama a yield(); atender GNSS/PIO durante las esperas.
@@ -2213,7 +2221,10 @@ void maintainEthernet() {
       return;
     }
     if (now - lastEthernetAttemptMs >= ethernetRetryMs) {
-      if (!initializeEthernet(false)) {
+      ethernetRecovering = true;
+      bool initialized = initializeEthernet(false);
+      ethernetRecovering = false;
+      if (!initialized) {
         ethernetRetryMs = min(ethernetRetryMs * 2,
           (uint32_t)ETHERNET_RETRY_MAX_MS);
       }
@@ -2394,7 +2405,7 @@ void serviceDiagQueue() {
 // ============================================================================
 
 void sendDiagStatus() {
-  if (!diagClient || !diagClient.connected()) {
+  if (!ethernetReady || !diagClient || !diagClient.connected()) {
     return;
   }
 
