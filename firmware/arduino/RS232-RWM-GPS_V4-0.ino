@@ -13,7 +13,8 @@
       * puerto diagnóstico: 15920
   - Diagnóstico TCP con comandos:
     status, imu, com2, help, magcal start, magcal stop,
-    magcal reset, yawoff <-180..180>, freq <1..10>, diag on/off
+    magcal reset, yawoff <-180..180>, freq <1..10>, diag on/off,
+    debug hex on/off
 
   Notas:
   - Sin ArduinoBLE
@@ -111,6 +112,8 @@
 #define ETHERNET_RETRY_INITIAL_MS   1000
 #define ETHERNET_RETRY_MAX_MS       30000
 #define ETHERNET_SETUP_ATTEMPTS     3
+#define HEX_CAPTURE_CAPACITY        8192
+#define HEX_CAPTURE_DURATION_MS     10000
 
 // ============================================================================
 // PROTOTIPOS
@@ -135,6 +138,8 @@ void sendDiagIMU();
 void sendDiagCOM2();
 void sendDiagHelp();
 void sendDiagPeriodicDiagnostic();
+void updateHexCapture();
+void sendHexCapture();
 
 void loadMagCalibration();
 void saveMagCalibration();
@@ -182,6 +187,26 @@ bool tcpCommandOverflow = false;
 char diagQueue[4096];
 size_t diagQueueHead = 0;
 size_t diagQueueLength = 0;
+
+// ============================================================================
+// CAPTURA HEX SERIAL1 - INDEPENDIENTE DEL PARSER GNSS
+// ============================================================================
+
+enum HexCaptureState {
+  HEX_IDLE,
+  HEX_CAPTURING,
+  HEX_HEADER,
+  HEX_DATA,
+  HEX_FOOTER
+};
+
+HexCaptureState hexCaptureState = HEX_IDLE;
+uint8_t hexCaptureBuffer[HEX_CAPTURE_CAPACITY];
+size_t hexCaptureHead = 0;
+size_t hexCaptureLength = 0;
+uint32_t hexCaptureDiscarded = 0;
+uint32_t hexCaptureStartMs = 0;
+uint32_t hexCaptureDurationMs = 0;
 
 // ============================================================================
 // VARIABLES CONFIGURABLES
@@ -1045,8 +1070,23 @@ void readGNSS() {
 
   // El parser puede escribir diagnóstico USB y volver a invocar yield().
   gnssReading = true;
+  updateHexCapture();
   while (Serial1.available() > 0) {
     char character = (char)Serial1.read();
+
+    if (hexCaptureState == HEX_CAPTURING) {
+      updateHexCapture();
+      if (hexCaptureState == HEX_CAPTURING) {
+        hexCaptureBuffer[(hexCaptureHead + hexCaptureLength) % sizeof(hexCaptureBuffer)] =
+          (uint8_t)character;
+        if (hexCaptureLength < sizeof(hexCaptureBuffer)) {
+          hexCaptureLength++;
+        } else {
+          hexCaptureHead = (hexCaptureHead + 1) % sizeof(hexCaptureBuffer);
+          hexCaptureDiscarded++;
+        }
+      }
+    }
 
     if (
       character == '$' ||
@@ -2117,6 +2157,7 @@ bool initializeEthernet(bool useDHCP) {
   }
   diagQueueHead = 0;
   diagQueueLength = 0;
+  hexCaptureState = HEX_IDLE;
   tcpCommandIndex = 0;
   tcpCommandOverflow = false;
 
@@ -2270,6 +2311,7 @@ void acceptTCPClients() {
     diagClient.stop();
     diagQueueHead = 0;
     diagQueueLength = 0;
+    hexCaptureState = HEX_IDLE;
     diagClient = diagServer.accept();
 
     if (diagClient) {
@@ -2304,6 +2346,7 @@ void serviceTCPClients() {
   }
 
   readTCPCommands();
+  sendHexCapture();
   serviceDiagQueue();
 }
 
@@ -2351,6 +2394,7 @@ void sendDiagText(const char* text) {
     diagClient.stop();
     diagQueueHead = 0;
     diagQueueLength = 0;
+    hexCaptureState = HEX_IDLE;
     return;
   }
   for (size_t i = 0; i < length; i++) {
@@ -2378,6 +2422,7 @@ void serviceDiagQueue() {
   if (!ethernetReady || !diagClient || !diagClient.connected()) {
     diagQueueHead = 0;
     diagQueueLength = 0;
+    hexCaptureState = HEX_IDLE;
     return;
   }
   if (diagQueueLength == 0) {
@@ -2398,6 +2443,76 @@ void serviceDiagQueue() {
   diagQueueHead = (diagQueueHead + written) % sizeof(diagQueue);
   diagQueueLength -= written;
   readGNSS();
+}
+
+// ============================================================================
+// TCP - CAPTURA HEX (UNA LINEA POR VUELTA, SIN ESPERAR ESPACIO TCP)
+// ============================================================================
+
+void updateHexCapture() {
+  if (
+    hexCaptureState == HEX_CAPTURING &&
+    millis() - hexCaptureStartMs >= HEX_CAPTURE_DURATION_MS
+  ) {
+    hexCaptureDurationMs = HEX_CAPTURE_DURATION_MS;
+    hexCaptureState = HEX_HEADER;
+  }
+}
+
+void sendHexCapture() {
+  if (!ethernetReady || !diagClient || !diagClient.connected()) {
+    hexCaptureState = HEX_IDLE;
+    return;
+  }
+
+  updateHexCapture();
+  char text[192];
+  size_t bytes = 0;
+  if (hexCaptureState == HEX_HEADER) {
+    snprintf(
+      text, sizeof(text),
+      "\r\n[HEX CAPTURE]\r\n"
+      "Duracion: %lu ms\r\n"
+      "Bytes guardados: %lu\r\n"
+      "Bytes descartados: %lu\r\n\r\n",
+      (unsigned long)hexCaptureDurationMs,
+      (unsigned long)hexCaptureLength,
+      (unsigned long)hexCaptureDiscarded
+    );
+  } else if (hexCaptureState == HEX_DATA) {
+    const char hexDigits[] = "0123456789ABCDEF";
+    bytes = min(hexCaptureLength, (size_t)16);
+    for (size_t i = 0; i < bytes; i++) {
+      uint8_t value = hexCaptureBuffer[(hexCaptureHead + i) % sizeof(hexCaptureBuffer)];
+      text[i * 3] = hexDigits[value >> 4];
+      text[i * 3 + 1] = hexDigits[value & 0x0F];
+      text[i * 3 + 2] = ' ';
+    }
+    text[bytes * 3] = '\r';
+    text[bytes * 3 + 1] = '\n';
+    text[bytes * 3 + 2] = '\0';
+  } else if (hexCaptureState == HEX_FOOTER) {
+    strcpy(text, "[FIN CAPTURA]\r\n");
+  } else {
+    return;
+  }
+
+  if (strlen(text) > sizeof(diagQueue) - diagQueueLength) {
+    return;
+  }
+  sendDiagText(text);
+
+  if (hexCaptureState == HEX_HEADER) {
+    hexCaptureState = hexCaptureLength > 0 ? HEX_DATA : HEX_FOOTER;
+  } else if (hexCaptureState == HEX_DATA) {
+    hexCaptureHead = (hexCaptureHead + bytes) % sizeof(hexCaptureBuffer);
+    hexCaptureLength -= bytes;
+    if (hexCaptureLength == 0) {
+      hexCaptureState = HEX_FOOTER;
+    }
+  } else if (hexCaptureState == HEX_FOOTER) {
+    hexCaptureState = HEX_IDLE;
+  }
 }
 
 // ============================================================================
@@ -2678,6 +2793,10 @@ void sendDiagHelp() {
     "diag on|off\r\n"
     "  Activa o desactiva el bloque periodico [DIAG].\r\n"
     "\r\n"
+    "debug hex on|off\r\n"
+    "  Captura Serial1 10 s; off finaliza antes y envia los bytes.\r\n"
+    "  Conserva los ultimos 8192 bytes y cuenta los descartados.\r\n"
+    "\r\n"
     "help\r\n"
     "  Muestra esta ayuda.\r\n"
     "============================\r\n";
@@ -2754,6 +2873,30 @@ void processTCPCommand(const char* commandInput) {
 
   if (strcmp(start, "help") == 0) {
     sendDiagHelp();
+    return;
+  }
+
+  if (strcmp(start, "debug hex on") == 0) {
+    if (hexCaptureState != HEX_IDLE) {
+      sendDiagText("ERROR: captura ya en curso\r\n");
+      return;
+    }
+    hexCaptureHead = 0;
+    hexCaptureLength = 0;
+    hexCaptureDiscarded = 0;
+    hexCaptureDurationMs = 0;
+    hexCaptureStartMs = millis();
+    hexCaptureState = HEX_CAPTURING;
+    sendDiagText("OK: captura iniciada\r\n");
+    return;
+  }
+
+  if (strcmp(start, "debug hex off") == 0) {
+    if (hexCaptureState == HEX_CAPTURING) {
+      hexCaptureDurationMs = millis() - hexCaptureStartMs;
+      hexCaptureState = HEX_HEADER;
+    }
+    sendDiagText("OK: captura detenida\r\n");
     return;
   }
 
@@ -2956,6 +3099,7 @@ void readTCPCommands() {
 void sendDiagPeriodicDiagnostic() {
   if (
     !tcpDiagnosticEnabled ||
+    (hexCaptureState != HEX_IDLE && hexCaptureState != HEX_CAPTURING) ||
     !diagClient ||
     !diagClient.connected()
   ) {
