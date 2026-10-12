@@ -197,7 +197,8 @@ enum HexCaptureState {
   HEX_CAPTURING,
   HEX_HEADER,
   HEX_DATA,
-  HEX_FOOTER
+  HEX_FOOTER,
+  HEX_DRAINING
 };
 
 HexCaptureState hexCaptureState = HEX_IDLE;
@@ -2466,6 +2467,12 @@ void sendHexCapture() {
   }
 
   updateHexCapture();
+  if (hexCaptureState == HEX_DRAINING) {
+    if (diagQueueLength == 0) {
+      hexCaptureState = HEX_IDLE;
+    }
+    return;
+  }
   char text[192];
   size_t bytes = 0;
   if (hexCaptureState == HEX_HEADER) {
@@ -2511,7 +2518,7 @@ void sendHexCapture() {
       hexCaptureState = HEX_FOOTER;
     }
   } else if (hexCaptureState == HEX_FOOTER) {
-    hexCaptureState = HEX_IDLE;
+    hexCaptureState = HEX_DRAINING;
   }
 }
 
