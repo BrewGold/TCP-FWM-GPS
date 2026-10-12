@@ -54,8 +54,10 @@ se espera hasta 5 segundos a `LinkON` antes de abrir los servidores. USB muestra
 contrario muestra el fallo. `status` informa `LISTEN`/`SIN ESCUCHA` por puerto.
 D4 permanece alto y se deja 1 µs de margen antes de los accesos Ethernet.
 Si se pierde el enlace, se suspenden los servicios TCP; al recuperarlo se
-reinicializa Ethernet, con reintentos separados por backoff hasta 30 segundos.
-Los clientes anteriores se cierran y deben reconectarse.
+reinicializa Ethernet reutilizando la última configuración IP, sin esperar DHCP
+ni enlace en runtime, con reintentos separados por backoff hasta 30 segundos.
+Los clientes anteriores se cierran con timeout acotado y deben reconectarse.
+Si cambia la configuración de red, reiniciar la placa para obtener DHCP de nuevo.
 
 Comprobación en banco: conectar el PC a la misma subred que la IP indicada por
 USB (para el respaldo, una IP libre `192.168.1.x/24`) y ejecutar

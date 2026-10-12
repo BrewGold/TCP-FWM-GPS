@@ -121,7 +121,7 @@ void debugPrintf(const char* format, ...);
 void initializeCOM2();
 void serviceCOM2();
 
-bool initializeEthernet();
+bool initializeEthernet(bool useDHCP = true);
 void maintainEthernet();
 void acceptTCPClients();
 void serviceTCPClients();
@@ -169,6 +169,10 @@ bool ethernetReady = false;
 uint32_t lastEthernetCheckMs = 0;
 uint32_t lastEthernetAttemptMs = 0;
 uint32_t ethernetRetryMs = ETHERNET_RETRY_INITIAL_MS;
+IPAddress ethernetIP(192, 168, 1, 22);
+IPAddress ethernetDNS(192, 168, 1, 1);
+IPAddress ethernetGateway(192, 168, 1, 1);
+IPAddress ethernetSubnet(255, 255, 255, 0);
 uint32_t lastTcpDiagnosticMs = 0;
 bool tcpDiagnosticEnabled = true;
 char tcpCommandBuffer[TCP_COMMAND_BUFFER_SIZE];
@@ -2083,19 +2087,22 @@ void prepareEthernetSPI() {
   delayMicroseconds(1);
 }
 
-bool initializeEthernet() {
+bool initializeEthernet(bool useDHCP) {
   ethernetReady = false;
   pinMode(SD_CS_PIN, OUTPUT);
   prepareEthernetSPI();
   for (uint8_t i = 0; i < NMEA_CLIENT_COUNT; i++) {
+    nmeaClients[i].setConnectionTimeout(10);
     nmeaClients[i].stop();
   }
+  diagClient.setConnectionTimeout(10);
   diagClient.stop();
   // Ethernet.begin() no cierra los sockets de escucha ni los clientes sin aceptar.
   for (uint8_t i = 0; i < MAX_SOCK_NUM; i++) {
     if (EthernetServer::server_port[i] == NMEA_TCP_PORT ||
         EthernetServer::server_port[i] == DIAG_TCP_PORT) {
       EthernetClient serverSocket(i);
+      serverSocket.setConnectionTimeout(10);
       serverSocket.stop();
       EthernetServer::server_port[i] = 0;
     }
@@ -2111,34 +2118,33 @@ bool initializeEthernet() {
     "[ETH] Inicializando Ethernet"
   );
 
-  int dhcpResult =
-    Ethernet.begin(ethernetMac, ETHERNET_LINK_TIMEOUT_MS, 1000);
+  // DHCP solo en setup: no detener la generacion COM2 durante la recuperacion.
+  int dhcpResult = useDHCP ?
+    Ethernet.begin(ethernetMac, ETHERNET_LINK_TIMEOUT_MS, 1000) : 0;
+
+  if (dhcpResult == 0) {
+    Ethernet.begin(
+      ethernetMac,
+      ethernetIP,
+      ethernetDNS,
+      ethernetGateway,
+      ethernetSubnet
+    );
+    Serial.print("[ETH] IP de respaldo/recuperacion: ");
+    Serial.println(ethernetIP);
+  } else {
+    ethernetIP = Ethernet.localIP();
+    ethernetDNS = Ethernet.dnsServerIP();
+    ethernetGateway = Ethernet.gatewayIP();
+    ethernetSubnet = Ethernet.subnetMask();
+    Serial.print("[ETH] IP asignada por DHCP: ");
+    Serial.println(ethernetIP);
+  }
 
   if (Ethernet.hardwareStatus() == EthernetNoHardware) {
     Serial.println("[ETH] Shield no detectado; Servidor TCP: FAIL");
     lastEthernetAttemptMs = millis();
     return false;
-  }
-
-  if (dhcpResult == 0) {
-    Serial.println(
-      "[ETH] DHCP no disponible, usando IP fija: 192.168.1.22"
-    );
-
-    IPAddress fallbackIP(192, 168, 1, 22);
-    IPAddress dns(192, 168, 1, 1);
-    IPAddress gateway(192, 168, 1, 1);
-    IPAddress subnet(255, 255, 255, 0);
-    Ethernet.begin(
-      ethernetMac,
-      fallbackIP,
-      dns,
-      gateway,
-      subnet
-    );
-  } else {
-    Serial.print("[ETH] IP asignada por DHCP: ");
-    Serial.println(Ethernet.localIP());
   }
 
   if (Ethernet.localIP() == IPAddress(0, 0, 0, 0)) {
@@ -2149,7 +2155,7 @@ bool initializeEthernet() {
 
   uint32_t linkWaitStart = millis();
   while (Ethernet.linkStatus() != LinkON) {
-    if (millis() - linkWaitStart >= ETHERNET_LINK_TIMEOUT_MS) {
+    if (!useDHCP || millis() - linkWaitStart >= ETHERNET_LINK_TIMEOUT_MS) {
       Serial.println("[ETH] Timeout esperando enlace; Servidor TCP: FAIL");
       lastEthernetAttemptMs = millis();
       return false;
@@ -2207,7 +2213,7 @@ void maintainEthernet() {
       return;
     }
     if (now - lastEthernetAttemptMs >= ethernetRetryMs) {
-      if (!initializeEthernet()) {
+      if (!initializeEthernet(false)) {
         ethernetRetryMs = min(ethernetRetryMs * 2,
           (uint32_t)ETHERNET_RETRY_MAX_MS);
       }
