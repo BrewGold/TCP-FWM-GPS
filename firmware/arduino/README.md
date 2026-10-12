@@ -68,6 +68,25 @@ USB (para el respaldo, una IP libre `192.168.1.x/24`) y ejecutar
 `telnet <IP> 15919` para recibir NMEA cuando haya salida GNSS. Repetir tras
 arrancar sin cable y tras desconectarlo/reconectarlo, reconectando los clientes.
 
+**Captura HEX integrada de Serial1:** en el puerto **15920**, enviar
+`debug hex on`. Responde `OK: captura iniciada`; tras 10 segundos entrega
+`[HEX CAPTURE]`, duración, bytes guardados/descartados, líneas de hasta 16 bytes
+en hexadecimal y `[FIN CAPTURA]`. Captura todos los bytes antes del filtrado
+del parser, incluidos CR/LF, caracteres binarios y frases con checksum incorrecto.
+El buffer circular de **8192 bytes** conserva los bytes más recientes en orden;
+cada byte antiguo sobrescrito cuenta como descartado. La captura no se repite
+automáticamente. `debug hex off` finaliza antes y entrega los datos parciales
+con su duración real. Otro `debug hex on` durante la captura o su volcado responde
+`ERROR: captura ya en curso`. Desconectar el cliente o perder Ethernet cancela
+la captura pendiente; al reconectar hay que iniciarla de nuevo.
+
+La recepción y el parseo GGA/RMC, COM2 en D2, TCP NMEA e IMU siguen operativos.
+El volcado utiliza la cola TCP existente, una línea por vuelta y sin esperar
+espacio; `[DIAG]` se pausa solo durante el volcado y se reanuda al finalizar.
+Esto es diagnóstico, no una corrección de checksum ni una prueba de su causa.
+En banco, comprobar capturas sin datos, con más de 8192 bytes, parada anticipada,
+inicio duplicado y cliente lento/desconectado mientras COM2/NMEA/IMU continúan.
+
 Calibración: `EEPROM.begin/get/put/commit` del core, en el sector de flash
 reservado por Arduino-Pico; no usa FlashStorage SAMD ni SPI del shield.
 Se mantienen el formato, magic y validación de valores finitos. Recalibrar
@@ -98,6 +117,7 @@ Validación en banco pendiente: comprobar D2 con analizador a 38400/8N1,
 checksum/CRLF y contadores a 1/10 Hz bajo carga GNSS/I2C/TCP; verificar
 switch GNSS, ICM-20948 y W5500 simultáneamente; probar `status`, `imu`,
 `com2`, `help`, `magcal start/stop/reset`, `yawoff`, `freq`, `diag on/off`,
+`debug hex on/off`,
 clientes lentos/desconectados, comandos largos y persistencia tras reinicio.
 
 ### Rev.3.0 (histórica): Metro M4 y COM2 por UART hardware
