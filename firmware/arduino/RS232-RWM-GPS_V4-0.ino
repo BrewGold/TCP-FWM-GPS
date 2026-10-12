@@ -114,6 +114,11 @@
 #define ETHERNET_SETUP_ATTEMPTS     3
 #define HEX_CAPTURE_CAPACITY        8192
 #define HEX_CAPTURE_DURATION_MS     10000
+#define GNSS_RX_PIN 0
+#define GNSS_TX_PIN 1
+
+// COM2 salida hacia RTK
+#define COM2_TX_PIN 2
 
 // ============================================================================
 // PROTOTIPOS
