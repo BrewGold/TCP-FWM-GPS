@@ -47,6 +47,27 @@ escrituras parciales y cierra el cliente si la cola se desborda. Los informes
 formateados rechazan truncamiento; los comandos demasiado largos se descartan
 hasta fin de línea, sin ejecutar su sufijo.
 
+El arranque realiza hasta tres intentos, con backoff de 1 y 2 segundos.
+DHCP tiene un timeout de 5 segundos y, tras configurar DHCP o la IP de respaldo,
+se espera hasta 5 segundos a `LinkON` antes de abrir los servidores. USB muestra
+`Servidor TCP: OK` solo cuando ambos puertos tienen un socket en escucha; en caso
+contrario muestra el fallo. `status` informa `LISTEN`/`SIN ESCUCHA` por puerto.
+D4 permanece alto y se deja 1 µs de margen antes de los accesos Ethernet.
+Si se pierde el enlace, se suspenden los servicios TCP; al recuperarlo se
+reinicializa Ethernet reutilizando la última configuración IP, sin esperar DHCP
+ni enlace en runtime, con reintentos separados por backoff hasta 30 segundos.
+Los clientes anteriores se cierran con timeout acotado y deben reconectarse.
+Las esperas de detección de hardware mantienen la generación periódica COM2,
+sin acceder a Ethernet desde la espera cooperativa.
+Si cambia la configuración de red, reiniciar la placa para obtener DHCP de nuevo.
+
+Comprobación en banco: conectar el PC a la misma subred que la IP indicada por
+USB (para el respaldo, una IP libre `192.168.1.x/24`) y ejecutar
+`telnet <IP> 15920`. Debe aparecer `FWD-GPS Rev.4.0 TCP diagnostic`; probar
+`help` y `status`, y comprobar ambos puertos en escucha. Abrir también
+`telnet <IP> 15919` para recibir NMEA cuando haya salida GNSS. Repetir tras
+arrancar sin cable y tras desconectarlo/reconectarlo, reconectando los clientes.
+
 Calibración: `EEPROM.begin/get/put/commit` del core, en el sector de flash
 reservado por Arduino-Pico; no usa FlashStorage SAMD ni SPI del shield.
 Se mantienen el formato, magic y validación de valores finitos. Recalibrar

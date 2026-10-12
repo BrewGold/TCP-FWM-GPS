@@ -107,6 +107,10 @@
 #define TCP_DIAGNOSTIC_PERIOD_MS    5000
 #define TCP_COMMAND_BUFFER_SIZE     96
 #define NMEA_CLIENT_COUNT           4
+#define ETHERNET_LINK_TIMEOUT_MS    5000
+#define ETHERNET_RETRY_INITIAL_MS   1000
+#define ETHERNET_RETRY_MAX_MS       30000
+#define ETHERNET_SETUP_ATTEMPTS     3
 
 // ============================================================================
 // PROTOTIPOS
@@ -117,7 +121,7 @@ void debugPrintf(const char* format, ...);
 void initializeCOM2();
 void serviceCOM2();
 
-bool initializeEthernet();
+bool initializeEthernet(bool useDHCP = true);
 void maintainEthernet();
 void acceptTCPClients();
 void serviceTCPClients();
@@ -162,7 +166,14 @@ EthernetClient nmeaClients[NMEA_CLIENT_COUNT];
 EthernetClient diagClient;
 
 bool ethernetReady = false;
+bool ethernetRecovering = false;
 uint32_t lastEthernetCheckMs = 0;
+uint32_t lastEthernetAttemptMs = 0;
+uint32_t ethernetRetryMs = ETHERNET_RETRY_INITIAL_MS;
+IPAddress ethernetIP(192, 168, 1, 22);
+IPAddress ethernetDNS(192, 168, 1, 1);
+IPAddress ethernetGateway(192, 168, 1, 1);
+IPAddress ethernetSubnet(255, 255, 255, 0);
 uint32_t lastTcpDiagnosticMs = 0;
 bool tcpDiagnosticEnabled = true;
 char tcpCommandBuffer[TCP_COMMAND_BUFFER_SIZE];
@@ -1080,6 +1091,13 @@ void yield() {
   // Ethernet libera SPI antes de yield(); no acceder a SPI desde aquí.
   readGNSS();
   serviceCOM2();
+  static bool generatingFrame = false;
+  if (ethernetRecovering && !ethernetReady && !generatingFrame) {
+    generatingFrame = true;
+    updateMovementState();
+    transmitGCGGA(); // Ethernet deshabilitado: solo COM2 y USB.
+    generatingFrame = false;
+  }
 }
 
 // Arduino-Pico delay() no llama a yield(); atender GNSS/PIO durante las esperas.
@@ -2071,9 +2089,36 @@ void addNmeaChecksumAndCrlf(
 // ETHERNET
 // ============================================================================
 
-bool initializeEthernet() {
-  pinMode(SD_CS_PIN, OUTPUT);
+void prepareEthernetSPI() {
+  // La SD no se usa; mantenerla deseleccionada antes de acceder al W5500.
   digitalWrite(SD_CS_PIN, HIGH);
+  delayMicroseconds(1);
+}
+
+bool initializeEthernet(bool useDHCP) {
+  ethernetReady = false;
+  pinMode(SD_CS_PIN, OUTPUT);
+  prepareEthernetSPI();
+  for (uint8_t i = 0; i < NMEA_CLIENT_COUNT; i++) {
+    nmeaClients[i].setConnectionTimeout(10);
+    nmeaClients[i].stop();
+  }
+  diagClient.setConnectionTimeout(10);
+  diagClient.stop();
+  // Ethernet.begin() no cierra los sockets de escucha ni los clientes sin aceptar.
+  for (uint8_t i = 0; i < MAX_SOCK_NUM; i++) {
+    if (EthernetServer::server_port[i] == NMEA_TCP_PORT ||
+        EthernetServer::server_port[i] == DIAG_TCP_PORT) {
+      EthernetClient serverSocket(i);
+      serverSocket.setConnectionTimeout(10);
+      serverSocket.stop();
+      EthernetServer::server_port[i] = 0;
+    }
+  }
+  diagQueueHead = 0;
+  diagQueueLength = 0;
+  tcpCommandIndex = 0;
+  tcpCommandOverflow = false;
 
   Ethernet.init(ETHERNET_CS_PIN);
 
@@ -2081,40 +2126,72 @@ bool initializeEthernet() {
     "[ETH] Inicializando Ethernet"
   );
 
-  int dhcpResult =
-    Ethernet.begin(ethernetMac);
+  // DHCP solo en setup: no detener la generacion COM2 durante la recuperacion.
+  int dhcpResult = useDHCP ?
+    Ethernet.begin(ethernetMac, ETHERNET_LINK_TIMEOUT_MS, 1000) : 0;
 
   if (dhcpResult == 0) {
-    Serial.println(
-      "[ETH] DHCP no disponible, usando IP fija: 192.168.1.22"
-    );
-
-    IPAddress fallbackIP(192, 168, 1, 22);
-    IPAddress dns(192, 168, 1, 1);
-    IPAddress gateway(192, 168, 1, 1);
-    IPAddress subnet(255, 255, 255, 0);
     Ethernet.begin(
       ethernetMac,
-      fallbackIP,
-      dns,
-      gateway,
-      subnet
+      ethernetIP,
+      ethernetDNS,
+      ethernetGateway,
+      ethernetSubnet
     );
+    Serial.print("[ETH] IP de respaldo/recuperacion: ");
+    Serial.println(ethernetIP);
   } else {
+    ethernetIP = Ethernet.localIP();
+    ethernetDNS = Ethernet.dnsServerIP();
+    ethernetGateway = Ethernet.gatewayIP();
+    ethernetSubnet = Ethernet.subnetMask();
     Serial.print("[ETH] IP asignada por DHCP: ");
-    Serial.println(Ethernet.localIP());
+    Serial.println(ethernetIP);
   }
 
+  if (Ethernet.hardwareStatus() == EthernetNoHardware) {
+    Serial.println("[ETH] Shield no detectado; Servidor TCP: FAIL");
+    lastEthernetAttemptMs = millis();
+    return false;
+  }
+
+  if (Ethernet.localIP() == IPAddress(0, 0, 0, 0)) {
+    Serial.println("[ETH] IP no configurada; Servidor TCP: FAIL");
+    lastEthernetAttemptMs = millis();
+    return false;
+  }
+
+  uint32_t linkWaitStart = millis();
+  while (Ethernet.linkStatus() != LinkON) {
+    if (!useDHCP || millis() - linkWaitStart >= ETHERNET_LINK_TIMEOUT_MS) {
+      Serial.println("[ETH] Timeout esperando enlace; Servidor TCP: FAIL");
+      lastEthernetAttemptMs = millis();
+      return false;
+    }
+    delay(50);
+    prepareEthernetSPI();
+  }
+
+  prepareEthernetSPI();
   nmeaServer.begin();
+  prepareEthernetSPI();
   diagServer.begin();
-  Serial.print("[ETH] Servidor NMEA TCP en puerto ");
-  Serial.println(NMEA_TCP_PORT);
-  Serial.print("[ETH] Servidor de diagnostico TCP en puerto ");
-  Serial.println(DIAG_TCP_PORT);
+  bool nmeaListening = (bool)nmeaServer;
+  bool diagListening = (bool)diagServer;
+  debugPrintf("[ETH] NMEA TCP %d: %s\n",
+    NMEA_TCP_PORT, nmeaListening ? "LISTEN" : "FAIL");
+  debugPrintf("[ETH] Diagnostico TCP %d: %s\n",
+    DIAG_TCP_PORT, diagListening ? "LISTEN" : "FAIL");
 
-  ethernetReady = true;
+  ethernetReady = nmeaListening && diagListening;
+  Serial.println(ethernetReady ?
+    "[ETH] Servidor TCP: OK" : "[ETH] Servidor TCP: FAIL");
+  lastEthernetAttemptMs = millis();
+  if (ethernetReady) {
+    ethernetRetryMs = ETHERNET_RETRY_INITIAL_MS;
+  }
 
-  return true;
+  return ethernetReady;
 }
 
 void maintainEthernet() {
@@ -2122,40 +2199,47 @@ void maintainEthernet() {
 
   if (
     now - lastEthernetCheckMs <
-    5000
+    1000
   ) {
     return;
   }
 
   lastEthernetCheckMs = now;
+  prepareEthernetSPI();
 
-  if (
-    Ethernet.hardwareStatus() ==
-    EthernetNoHardware
-  ) {
+  bool hardwarePresent = Ethernet.hardwareStatus() != EthernetNoHardware;
+  bool linkUp = hardwarePresent && Ethernet.linkStatus() == LinkON;
+  if (ethernetReady && !linkUp) {
     ethernetReady = false;
+    ethernetRetryMs = ETHERNET_RETRY_INITIAL_MS;
+    Serial.println("[ETH] Enlace perdido; se reintentara Ethernet");
+  }
 
-    Serial.println(
-      "[ETH] Shield no detectado"
-    );
-
+  if (!ethernetReady) {
+    // No bloquear el loop esperando un cable desconectado.
+    if (hardwarePresent && !linkUp) {
+      return;
+    }
+    if (now - lastEthernetAttemptMs >= ethernetRetryMs) {
+      ethernetRecovering = true;
+      bool initialized = initializeEthernet(false);
+      ethernetRecovering = false;
+      if (!initialized) {
+        ethernetRetryMs = min(ethernetRetryMs * 2,
+          (uint32_t)ETHERNET_RETRY_MAX_MS);
+      }
+    }
     return;
   }
 
-  if (
-    Ethernet.linkStatus() ==
-    LinkOFF
-  ) {
-    ethernetReady = false;
-
-    Serial.println(
-      "[ETH] Cable desconectado"
-    );
-
-    return;
+  // accept() consume el socket de escucha; recrearlo solo si falta.
+  if (!nmeaServer) {
+    nmeaServer.begin();
   }
-
-  ethernetReady = true;
+  prepareEthernetSPI();
+  if (!diagServer) {
+    diagServer.begin();
+  }
 }
 
 void acceptTCPClients() {
@@ -2207,6 +2291,10 @@ void acceptTCPClients() {
 }
 
 void serviceTCPClients() {
+  if (!ethernetReady) {
+    return;
+  }
+  prepareEthernetSPI();
   acceptTCPClients();
 
   for (uint8_t i = 0; i < NMEA_CLIENT_COUNT; i++) {
@@ -2228,6 +2316,7 @@ void transmitEthernet(const char* sentence) {
   }
 
   size_t length = strlen(sentence);
+  prepareEthernetSPI();
 
   for (uint8_t i = 0; i < NMEA_CLIENT_COUNT; i++) {
     readGNSS();
@@ -2247,7 +2336,9 @@ void transmitEthernet(const char* sentence) {
 }
 
 void sendDiagText(const char* text) {
+  prepareEthernetSPI();
   if (
+    !ethernetReady ||
     !diagClient ||
     !diagClient.connected() ||
     text == nullptr
@@ -2283,7 +2374,8 @@ void sendDiagPrintf(const char* format, ...) {
 }
 
 void serviceDiagQueue() {
-  if (!diagClient || !diagClient.connected()) {
+  prepareEthernetSPI();
+  if (!ethernetReady || !diagClient || !diagClient.connected()) {
     diagQueueHead = 0;
     diagQueueLength = 0;
     return;
@@ -2313,7 +2405,7 @@ void serviceDiagQueue() {
 // ============================================================================
 
 void sendDiagStatus() {
-  if (!diagClient || !diagClient.connected()) {
+  if (!ethernetReady || !diagClient || !diagClient.connected()) {
     return;
   }
 
@@ -2421,6 +2513,13 @@ void sendDiagStatus() {
     ethernetReady ? "OK" : "FAIL"
   );
 
+  prepareEthernetSPI();
+  sendDiagPrintf(
+    "Servidor NMEA TCP %d: %s\r\n"
+    "Servidor diagnostico TCP %d: %s\r\n",
+    NMEA_TCP_PORT, (bool)nmeaServer ? "LISTEN" : "SIN ESCUCHA",
+    DIAG_TCP_PORT, (bool)diagServer ? "LISTEN" : "SIN ESCUCHA"
+  );
 }
 
 // ============================================================================
@@ -3092,7 +3191,18 @@ void setup() {
   initializeCOM2();
 
   // Ethernet W5500.
-  if (!initializeEthernet()) {
+  for (uint8_t attempt = 0; attempt < ETHERNET_SETUP_ATTEMPTS; attempt++) {
+    if (initializeEthernet()) {
+      break;
+    }
+    if (attempt + 1 < ETHERNET_SETUP_ATTEMPTS) {
+      debugPrintf("[ETH] Reintento en %lu ms\n", (unsigned long)ethernetRetryMs);
+      delay(ethernetRetryMs);
+      ethernetRetryMs = min(ethernetRetryMs * 2,
+        (uint32_t)ETHERNET_RETRY_MAX_MS);
+    }
+  }
+  if (!ethernetReady) {
     Serial.println(
       "[SETUP] Ethernet no disponible"
     );
