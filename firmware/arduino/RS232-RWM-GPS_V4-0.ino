@@ -2090,7 +2090,7 @@ void createGCGGA(
   snprintf(
     output,
     outputSize,
-    "$GPGGA,%s,%s,%c,%s,%c,%d,%d,%.1f,%.1f,M,%.1f,M,,",
+    "$GPGGA,%s,%s,%c,%s,%c,%d,%d,%s,%s,M,0.0,M,,",
     utcTime,
     latitudeText,
     latitudeHemisphere,
