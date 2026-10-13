@@ -1,6 +1,19 @@
-# RS232-FWD-GPS
+# TCP-FWM-GPS (RS232-FWD-GPS)
 
-Sistema GNSS para Dynatest FWD con receptor ArduSimple simpleRTK3B Budget (UM980) y controlador Adafruit Metro RP2040.
+Sistema GNSS para Dynatest FWD con receptor ArduSimple simpleRTK3B Budget (UM980) y controlador Adafruit Metro RP2040 (configuración RS232 2003).
+
+## Estado actual (2026-10-13)
+
+- Firmware y flujo principal: **operativos**.
+- Salida NMEA esperada para integración: **GPGGA** en Telnet/COM2.
+- Comunicación GNSS estable (sin cambios pendientes de código en esta fase).
+- Pendiente de validación en receptor: **Galileo HAS (E6-HAS)**.
+
+## Flujo de puertos (resumen)
+
+1. UM980 entrega NMEA al controlador.
+2. El firmware procesa fijación/estado.
+3. Reenvío por COM2/TCP (servidor NMEA) para consumidores externos.
 
 ## Objetivo
 
@@ -49,8 +62,10 @@ Flujo principal:
 - `firmware/arduino/RS232-RWM-GPS_V2-9.ino`: puente temporal UNO R4, sin IMU/I2C.
 - `firmware/arduino/RS232-RWM-GPS_V2-8.ino`: última base UNO R4, conservada.
 - `firmware/arduino/README.md`: detalle técnico del firmware.
+- `docs/PROGRAMACION.md`: notas de programación, decisiones técnicas y validación.
 - `docs/functional-spec-v1.0.md`: especificación funcional completa.
 - `docs/system-architecture.md`: detalle de arquitectura y comunicaciones.
+- `logs/2026-10-13-session.md`: registro de sesión y validación operativa.
 - `CHANGELOG.md`: historial de versiones.
 
 ## Versiones
@@ -212,16 +227,48 @@ La precisión horizontal aproximada se calcula como `UERE típico × HDOP`:
 | RTK (fix 4) | ~0.02 m |
 | HAS (fix 5) | ~0.20 m |
 
-## Configuración UM980
+## Activación de Galileo HAS en UM980
+
+> Ejecutar en la consola del UM980 (no en el parser NMEA de aplicación).
+
+### 1) Habilitar grupo con Galileo E6
 
 ```text
-UNLOG COM3
-CONFIG COM3 115200
-GNGGA COM3 0.1
-GNRMC COM3 0.1
-ENABLE HAS
+SAVECONFIG
+CONFIG SIGNALGROUP 2
+```
+
+- `CONFIG SIGNALGROUP 2` puede reiniciar el receptor si cambia de grupo.
+- Esperar reconexión antes de seguir.
+
+### 2) Habilitar PPP con E6-HAS
+
+```text
+CONFIG PPP ENABLE E6-HAS
 SAVECONFIG
 ```
+
+### 3) Comprobar versión de firmware
+
+```text
+VERSIONA
+```
+
+Para E6-HAS se requiere versión/familia compatible del firmware UM980.
+
+## Validación rápida en campo
+
+- Cielo despejado.
+- Esperar convergencia PPP/HAS (puede tardar varios minutos).
+- Verificar en estado del sistema:
+  - `GNSS=OK`
+  - `FIX_IN=5` (si lógica local lo usa para HAS)
+  - Solución marcada como HAS (según telemetría disponible).
+
+## Notas operativas
+
+- `UNLOGALL` aplica por puerto (`COM1`, `COM2`, `COM3`), no global.
+- Si hay duplicados NMEA, revisar qué puertos están emitiendo la misma sentencia.
 
 ## Dependencias
 
