@@ -81,7 +81,10 @@ Las versiones antiguas que no publican FIX_IN o solución mostrarán
 **No disponible** y la alerta de claves ausentes; no se infiere HAS ni solución
 a partir del fix. Los valores desconocidos o malformados se tratan como ausentes.
 Las respuestas parciales no heredan campos de consultas anteriores.
-Los mensajes espontáneos `[DIAG]` no sustituyen la respuesta solicitada.
+Los mensajes espontáneos `[DIAG]` no sustituyen la respuesta solicitada, incluso
+si llegan fragmentados entre consultas. Después de `[DIAG]`, se espera una
+nueva cabecera `STATUS`/`ESTADO` para reanudar el análisis, como emite el firmware;
+un endpoint personalizado que mezcle mensajes debe usar esas cabeceras.
 
 - Conexión: espera máxima de 5 s; errores de red y cierre remoto se notifican.
 - Respuesta: espera máxima de 3 s, con delimitadores del firmware y una pausa

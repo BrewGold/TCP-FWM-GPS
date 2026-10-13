@@ -42,6 +42,11 @@ Check(StatusParser.Parse("[DIAG]\nGNSS=FAIL FIX_IN=0 HAS=OFF SOL=NOFIX\n" + rev4
 Check(StatusParser.Parse("=== ESTADO ACTUAL ===\nlinea malformada\n===================")?.MissingKeys.Length == 4, "bloque vacío señala todas las claves ausentes");
 Check(StatusParser.Parse(new string('x', 65537)) is null, "límite del parser");
 
+var filter = new StatusResponseFilter();
+Check(StatusParser.Parse(filter.Append(rev4 + "\r\n[DIA"))?.FixIn == 5, "status seguido de cabecera espontánea incompleta");
+Check(StatusParser.Parse(filter.Append("G]\r\nGNSS=OK FIX_IN=5 HAS=ON SOL=HAS\r\n")) is null, "fragmento espontáneo entre consultas no se acepta como status");
+Check(StatusParser.Parse(filter.Append(rev4 + "\r\n"))?.FixIn == 5, "nueva cabecera status recupera el flujo");
+
 var decoder = new TelnetDecoder();
 Check(decoder.Decode(new byte[] { 255 }).Text == "", "IAC fragmentado");
 Check(decoder.Decode(new byte[] { 251 }).Reply.Length == 0, "verbo fragmentado");
@@ -77,6 +82,20 @@ try
     Check(await reader.ReadLineAsync(deadline.Token) == "status", "segunda consulta sigue siendo solo status");
     await stream.WriteAsync("GNSS=OK HAS=ON\r\n"u8.ToArray(), deadline.Token);
     Check((await polling).Status?.MissingKeys.Length == 2, "respuesta TCP parcial");
+
+    polling = session.PollAsync(deadline.Token);
+    await reader.ReadLineAsync(deadline.Token);
+    await stream.WriteAsync(Encoding.UTF8.GetBytes(rev4 + "\r\n[DIAG]\r\n"), deadline.Token);
+    Check((await polling).Status?.FixIn == 5, "status válido antes de diagnóstico fragmentado");
+    polling = session.PollAsync(deadline.Token);
+    await reader.ReadLineAsync(deadline.Token);
+    await stream.WriteAsync("GNSS=OK FIX_IN=5 HAS=ON SOL=HAS\r\n"u8.ToArray(), deadline.Token);
+    Check((await polling).Status is null, "cuerpo espontáneo recibido en la siguiente consulta no renueva el estado");
+
+    polling = session.PollAsync(deadline.Token);
+    await reader.ReadLineAsync(deadline.Token);
+    await stream.WriteAsync(Encoding.UTF8.GetBytes(rev4 + "\r\n"), deadline.Token);
+    Check((await polling).Status?.FixIn == 5, "recuperación de status enmarcado tras fragmento espontáneo");
 
     var clock = Stopwatch.StartNew();
     polling = session.PollAsync(deadline.Token);

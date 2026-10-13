@@ -22,9 +22,11 @@ public static class StatusParser
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
         TimeSpan.FromMilliseconds(100));
     private static readonly Regex Header = new(
-        @"^=+\s*(?:ESTADO[^\r\n]*|STATUS)\s*=+\s*\r?$",
+        @"^=+[ \t]*(?:ESTADO[^\r\n]*|STATUS)[ \t]*=+[ \t]*\r?$",
         RegexOptions.Multiline | RegexOptions.CultureInvariant,
         TimeSpan.FromMilliseconds(100));
+
+    internal static bool IsStatusHeader(string line) => Header.IsMatch(Normalize(line));
 
     public static DeviceStatus? Parse(string text)
     {

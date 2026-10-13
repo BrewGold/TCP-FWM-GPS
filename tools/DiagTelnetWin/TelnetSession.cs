@@ -11,6 +11,7 @@ public sealed class TelnetSession : IDisposable
 {
     private readonly TcpClient client = new();
     private readonly TelnetDecoder decoder = new();
+    private readonly StatusResponseFilter responseFilter = new();
     private NetworkStream? stream;
     public const int ResponseTimeoutMs = 3000;
 
@@ -28,6 +29,7 @@ public sealed class TelnetSession : IDisposable
         await connection.WriteAsync("status\r\n"u8.ToArray(), token);
         var clock = Stopwatch.StartNew();
         var text = new StringBuilder();
+        var response = new StringBuilder();
         var buffer = new byte[2048];
         int receivedBytes = 0;
         while (clock.ElapsedMilliseconds < ResponseTimeoutMs)
@@ -42,7 +44,7 @@ public sealed class TelnetSession : IDisposable
             }
             catch (OperationCanceledException) when (!token.IsCancellationRequested)
             {
-                if (StatusParser.Parse(text.ToString()) is not null)
+                if (StatusParser.Parse(response.ToString()) is not null)
                     break;
                 continue;
             }
@@ -55,12 +57,44 @@ public sealed class TelnetSession : IDisposable
             if (decoded.Reply.Length > 0)
                 await connection.WriteAsync(decoded.Reply, token);
             text.Append(decoded.Text);
+            response.Append(responseFilter.Append(decoded.Text));
         }
         string raw = text.ToString();
-        return new PollResult(StatusParser.Parse(raw), raw);
+        return new PollResult(StatusParser.Parse(response.ToString()), raw);
     }
 
     public void Dispose() => client.Dispose();
+}
+
+// Mantener líneas y contexto [DIAG] entre consultas evita aceptar sus fragmentos.
+public sealed class StatusResponseFilter
+{
+    private readonly StringBuilder pendingLine = new();
+    private bool unsolicited;
+
+    public string Append(string text)
+    {
+        var response = new StringBuilder();
+        foreach (char c in text)
+        {
+            if (c != '\n')
+            {
+                pendingLine.Append(c);
+                if (pendingLine.Length > 65536)
+                    throw new IOException("La línea Telnet supera el límite de 64 KiB.");
+                continue;
+            }
+            string line = pendingLine.ToString().TrimEnd('\r');
+            pendingLine.Clear();
+            if (line.TrimStart().StartsWith("[DIAG]", StringComparison.OrdinalIgnoreCase))
+                unsolicited = true;
+            else if (StatusParser.IsStatusHeader(line))
+                unsolicited = false;
+            if (!unsolicited)
+                response.Append(line).Append('\n');
+        }
+        return response.ToString();
+    }
 }
 
 // La negociación puede llegar fragmentada; se rechazan opciones sin activar eco.
