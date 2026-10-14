@@ -65,6 +65,8 @@ Flujo principal:
 - `docs/PROGRAMACION.md`: notas de programación, decisiones técnicas y validación.
 - `docs/functional-spec-v1.0.md`: especificación funcional completa.
 - `docs/system-architecture.md`: detalle de arquitectura y comunicaciones.
+- `docs/DECISIONES.md`: consolidado de decisiones técnicas y criterios operativos.
+- `docs/CHANGELOG_V2-5.md`: novedades técnicas consolidadas de la versión V2-5.
 - `logs/2026-10-13-session.md`: registro de sesión y validación operativa.
 - `CHANGELOG.md`: historial de versiones.
 
