@@ -113,8 +113,8 @@ public sealed class Form1 : Form
         configuration.Visible = compact;
         settings.Visible = !compact;
         logView.Visible = footer.Visible = !compact;
-        layout.RowStyles[2].SizeType = compact ? SizeType.Percent : SizeType.AutoSize;
-        layout.RowStyles[2].Height = compact ? 100 : 0;
+        layout.RowStyles[2].SizeType = SizeType.AutoSize;
+        layout.RowStyles[2].Height = 0;
         layout.RowStyles[4].SizeType = compact ? SizeType.Absolute : SizeType.Percent;
         layout.RowStyles[4].Height = compact ? 0 : 100;
         layout.RowStyles[5].SizeType = compact ? SizeType.Absolute : SizeType.AutoSize;
@@ -124,7 +124,7 @@ public sealed class Form1 : Form
         dashboard.RowStyles.Clear();
         dashboard.ColumnCount = 2;
         dashboard.RowCount = 6;
-        dashboard.AutoSize = !compact;
+        dashboard.AutoSize = true;
         dashboard.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, compact ? 50 : 40));
         dashboard.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, compact ? 50 : 60));
         Label[] values = { connection, gnss, fix, has, solution, age };
