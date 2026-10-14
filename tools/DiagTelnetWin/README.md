@@ -47,11 +47,77 @@ respaldo Ethernet de Rev.4, no una IP garantizada. En las versiones con
 punto de acceso WiFi, el ejemplo es `192.168.4.1:15920`.
 **No seleccionar `15919`: es el servidor NMEA, no el de diagnóstico.**
 Se aceptan direcciones IPv4/IPv6, puertos 1–65535 e intervalos 250–60000 ms.
-La configuración se mantiene solo durante la sesión de la aplicación.
+La IP, el puerto y el intervalo se mantienen solo durante la sesión de la
+aplicación; el modo de vista sí se guarda entre ejecuciones.
 
 Pulsar **Conectar** para iniciar las consultas y **Desconectar** para detenerlas.
 Los ajustes quedan bloqueados mientras se conecta o consulta. No hay reconexión
 automática: después de una desconexión, revisar la red y pulsar Conectar.
+
+## Modos de interfaz
+
+El botón **Modo: Compacto (50%)** / **Modo: Completo (100%)**, siempre en la barra
+superior, alterna la vista sin desconectar ni reiniciar las consultas.
+Los porcentajes identifican la densidad de información, no un escalado del texto.
+
+- **Compacto (50%)**, vista inicial: ventana de 760×430, reducible hasta
+  640×360 (dimensiones aproximadas con escala de Windows al 100%). Solo muestra
+  GNSS, FIX_IN, HAS, solución, salud Telnet, última actualización y alarmas
+  activas. Los valores principales son grandes y usan semáforos de color con
+  texto: verde = correcto/activo, naranja = atención/inactivo, rojo =
+  fallo/sin solución, gris = lectura sin vigencia confirmada. HAS inactivo no
+  significa por sí solo que Telnet esté averiado.
+  El log, la exportación y los ajustes se ocultan por defecto. **Configuración**
+  despliega u oculta IP, puerto e intervalo; Conectar/Desconectar permanecen
+  accesibles. En ventanas pequeñas o con escala elevada se permite desplazamiento.
+- **Completo (100%)**: ventana inicial de 980×720, con todos los estados,
+  configuración, registro en vivo y exportación. El log sigue recogiéndose en
+  compacto (hasta 300 entradas) y aparece al volver a completo; no se pierde
+  el diagnóstico por cambiar la vista.
+
+La preferencia se guarda por usuario en
+`%LOCALAPPDATA%\DiagTelnetWin\vista.json` al pulsar el selector. Si el archivo
+falta, está dañado o no se puede leer, se abre compacto. Si no se puede guardar,
+se avisa y el cambio sigue funcionando durante esa ejecución.
+Eliminar ese archivo restablece la vista inicial; no contiene IP ni telemetría.
+
+### Ejemplo de uso y esquema de las vistas
+
+1. Abrir la app en compacto, pulsar **Configuración**, introducir el endpoint
+   Telnet y pulsar **Conectar**. Ocultar Configuración para dejar solo el estado.
+2. Pulsar **Modo: Compacto (50%)** para pasar a completo y revisar el log o
+   **Exportar diagnóstico**. Las consultas continúan sin interrupción.
+3. Volver a compacto y cerrar. Al abrir de nuevo, se recupera compacto; si se
+   cierra en completo, se recupera completo.
+
+Esquemas orientativos (no son capturas reales; la disposición y tamaño del texto
+dependen de la escala de pantalla):
+
+```text
+Compacto (50%)
+┌────────────────────────────────────────────────────────────────┐
+│ Modo: Compacto (50%)  Configuración  Conectar  Desconectar       │
+│ Estado GNSS                    FIX_IN                          │
+│ Correcto                       5                               │
+│ Estado HAS                     Solución                        │
+│ Activo                         HAS                             │
+│ Salud Telnet                   Última actualización            │
+│ Conectado · Salud correcta      10:42:30 · hace 0,8 s            │
+│ Sin alarmas activas.                                           │
+└────────────────────────────────────────────────────────────────┘
+
+Completo (100%)
+┌────────────────────────────────────────────────────────────────┐
+│ Modo: Completo (100%)  Conectar  Desconectar                     │
+│ IP del dispositivo […]  Puerto Telnet […]  Intervalo (ms) […]    │
+│ Salud Telnet                   Conectado · Salud correcta      │
+│ Estado GNSS / FIX_IN / HAS      Correcto / 5 / Activo            │
+│ Solución / Última actualización HAS / 10:42:30 · hace 0,8 s     │
+│ Sin alarmas activas.                                           │
+│ [Registro Telnet en vivo con fecha y hora]                      │
+│ Exportar diagnóstico · Solo Telnet                             │
+└────────────────────────────────────────────────────────────────┘
+```
 
 ## Interpretación y alertas
 
@@ -59,6 +125,10 @@ El panel muestra GNSS, FIX_IN, HAS, solución, conexión y edad de la última
 **respuesta completa válida** recibida por la aplicación. Esta edad mide
 frescura de la telemetría Telnet, **no** antigüedad de la última medida GNSS:
 el firmware actual no publica esa edad en `status`.
+La hora mostrada es la hora local de recepción de esa respuesta completa.
+La salud Telnet distingue conexión con datos actuales de conexión sin datos
+actuales; no garantiza que GNSS tenga solución. Fallo GNSS o FIX_IN=0/sin solución
+también aparecen como alarmas.
 
 Se reconocen tanto las etiquetas Rev.4 como pares de claves, sin distinguir
 mayúsculas ni acentos:
@@ -117,7 +187,8 @@ Pruebas de protocolo sin dependencias externas, ejecutables también en Linux:
 dotnet run --project tools/DiagTelnetWin/Tests/DiagTelnetWin.Tests.csproj -c Release
 ```
 
-Comprueban los formatos de firmware, campos ausentes/malformados, límites,
+Comprueban la persistencia de ambos modos y la recuperación ante preferencias
+inválidas o errores de escritura, además de formatos de firmware, campos ausentes/malformados, límites,
 negociación Telnet fragmentada, UTF-8, consultas contra un servidor TCP local,
 timeout, cancelación y desconexión. No requieren un dispositivo.
 
@@ -134,3 +205,10 @@ Comprobación manual en Windows:
    permiso de escritura para comprobar el mensaje de error.
 6. Pulsar Desconectar y cerrar la ventana durante una lectura: comprobar que
    termina sin bloquearse y que COM2 sigue disponible para el usuario.
+7. Alternar modos conectado: comprobar que no se interrumpe la consulta y que el
+   registro acumulado reaparece en completo. Cerrar y abrir en cada modo para
+   comprobar la persistencia; probar archivo `vista.json` dañado y ruta sin permiso.
+8. En compacto, probar 640×360, 760×430 y 800×450, con escala de Windows al 100%,
+   150% y 200%: comprobar lectura de estados, alarmas largas y acceso al selector
+   y Configuración (desplazamiento cuando sea necesario). Verificar colores y
+   textos ante GNSS fallido, sin fix, respuesta parcial, timeout y desconexión.

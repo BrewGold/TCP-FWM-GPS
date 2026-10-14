@@ -23,6 +23,18 @@ public sealed class Form1 : Form
     private readonly Label age = new() { AutoSize = true };
     private readonly Label alerts = new() { AutoSize = true, ForeColor = Color.Firebrick, MaximumSize = new Size(820, 0) };
     private readonly RichTextBox logView = new() { ReadOnly = true, Dock = DockStyle.Fill };
+    private readonly Button viewMode = new() { AutoSize = true };
+    private readonly Button configuration = new() { Text = "Configuración", AutoSize = true };
+    private readonly TableLayoutPanel layout = new() { Dock = DockStyle.Fill, Padding = new Padding(12), ColumnCount = 1, RowCount = 6, AutoScroll = true };
+    private readonly TableLayoutPanel dashboard = new() { Dock = DockStyle.Fill };
+    private readonly FlowLayoutPanel settings = new() { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true };
+    private readonly FlowLayoutPanel footer = new() { AutoSize = true, Dock = DockStyle.Fill };
+    private readonly Label[] fieldTitles = { new() { Text = "Salud Telnet" }, new() { Text = "Estado GNSS" },
+        new() { Text = "FIX_IN" }, new() { Text = "Estado HAS" }, new() { Text = "Solución" },
+        new() { Text = "Última actualización" } };
+    private readonly Font compactFont = new(SystemFonts.MessageBoxFont!.FontFamily, 18, FontStyle.Bold);
+    private readonly Font healthFont = new(SystemFonts.MessageBoxFont!.FontFamily, 11, FontStyle.Bold);
+    private bool compact;
     private readonly System.Windows.Forms.Timer timer = new() { Interval = 250 };
     private readonly Queue<LogEntry> logs = new();
     private CancellationTokenSource? cancellation;
@@ -45,38 +57,40 @@ public sealed class Form1 : Form
     public Form1()
     {
         Text = "Diagnóstico GPS por Telnet — sin COM2";
-        MinimumSize = new Size(850, 600);
-        Size = new Size(980, 720);
         AutoScaleMode = AutoScaleMode.Font;
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), ColumnCount = 1, RowCount = 5 };
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        var settings = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true };
+        var toolbar = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true };
+        toolbar.Controls.AddRange(new Control[] { viewMode, configuration, connect, disconnect });
         settings.Controls.AddRange(new Control[]
         {
             new Label { Text = "IP del dispositivo", AutoSize = true }, deviceIp,
             new Label { Text = "Puerto Telnet", AutoSize = true }, port,
-            new Label { Text = "Intervalo (ms)", AutoSize = true }, interval, connect, disconnect
+            new Label { Text = "Intervalo (ms)", AutoSize = true }, interval
         });
-        var dashboard = new TableLayoutPanel { AutoSize = true, ColumnCount = 2, Dock = DockStyle.Fill, Padding = new Padding(0, 12, 0, 12) };
-        AddField(dashboard, "Conexión", connection);
-        AddField(dashboard, "Estado GNSS", gnss);
-        AddField(dashboard, "FIX_IN", fix);
-        AddField(dashboard, "Estado HAS", has);
-        AddField(dashboard, "Tipo de solución", solution);
-        AddField(dashboard, "Edad de la última respuesta válida", age);
-        layout.Controls.Add(settings, 0, 0);
-        layout.Controls.Add(dashboard, 0, 1);
-        layout.Controls.Add(alerts, 0, 2);
-        layout.Controls.Add(logView, 0, 3);
-        var footer = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
+        layout.Controls.Add(toolbar, 0, 0);
+        layout.Controls.Add(settings, 0, 1);
+        layout.Controls.Add(dashboard, 0, 2);
+        layout.Controls.Add(alerts, 0, 3);
+        layout.Controls.Add(logView, 0, 4);
         footer.Controls.Add(export);
         footer.Controls.Add(new Label { Text = "Solo Telnet. COM2 queda reservado al diagnóstico directo del usuario.", AutoSize = true });
-        layout.Controls.Add(footer, 0, 4);
+        layout.Controls.Add(footer, 0, 5);
         Controls.Add(layout);
+        viewMode.Click += (_, _) =>
+        {
+            ApplyViewMode(!compact);
+            if (!ViewPreferences.SaveCompact(ViewPreferences.DefaultPath, compact))
+                MessageBox.Show(this, "No se pudo guardar el modo de vista. Se mantendrá solo durante esta ejecución.",
+                    "Preferencia de vista", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        };
+        configuration.Click += (_, _) => settings.Visible = !settings.Visible;
+        Resize += (_, _) => UpdateTextWidths();
+        ApplyViewMode(ViewPreferences.LoadCompact(ViewPreferences.DefaultPath));
         connect.Click += async (_, _) => await StartAsync();
         disconnect.Click += async (_, _) => await StopAsync();
         export.Click += async (_, _) =>
@@ -89,11 +103,78 @@ public sealed class Form1 : Form
         RefreshDashboard();
     }
 
-    private static void AddField(TableLayoutPanel panel, string title, Label value)
+    private void ApplyViewMode(bool useCompact)
     {
-        int row = panel.RowCount++;
-        panel.Controls.Add(new Label { Text = title, AutoSize = true, Margin = new Padding(4, 5, 20, 5) }, 0, row);
-        panel.Controls.Add(value, 1, row);
+        SuspendLayout();
+        dashboard.SuspendLayout();
+        compact = useCompact;
+        viewMode.Text = compact ? "Modo: Compacto (50%)" : "Modo: Completo (100%)";
+        viewMode.AccessibleDescription = "Pulsar para alternar entre modo compacto y completo.";
+        configuration.Visible = compact;
+        settings.Visible = !compact;
+        logView.Visible = footer.Visible = !compact;
+        layout.RowStyles[2].SizeType = compact ? SizeType.Percent : SizeType.AutoSize;
+        layout.RowStyles[2].Height = compact ? 100 : 0;
+        layout.RowStyles[4].SizeType = compact ? SizeType.Absolute : SizeType.Percent;
+        layout.RowStyles[4].Height = compact ? 0 : 100;
+        layout.RowStyles[5].SizeType = compact ? SizeType.Absolute : SizeType.AutoSize;
+        layout.RowStyles[5].Height = 0;
+        dashboard.Controls.Clear();
+        dashboard.ColumnStyles.Clear();
+        dashboard.RowStyles.Clear();
+        dashboard.ColumnCount = 2;
+        dashboard.RowCount = 6;
+        dashboard.AutoSize = !compact;
+        dashboard.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, compact ? 50 : 40));
+        dashboard.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, compact ? 50 : 60));
+        Label[] values = { connection, gnss, fix, has, solution, age };
+        int[] order = compact ? new[] { 1, 2, 3, 4, 0, 5 } : new[] { 0, 1, 2, 3, 4, 5 };
+        for (int row = 0; row < 6; row++)
+            dashboard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        for (int i = 0; i < order.Length; i++)
+        {
+            int index = order[i];
+            Label title = fieldTitles[index], value = values[index];
+            title.AutoSize = true;
+            title.Margin = new Padding(4, compact ? 5 : 4, 4, 2);
+            value.Margin = new Padding(4, 0, 4, compact ? 5 : 4);
+            value.Font = compact ? (index is 0 or 5 ? healthFont : compactFont) : Font;
+            dashboard.Controls.Add(title, compact ? i % 2 : 0, compact ? i / 2 * 2 : i);
+            dashboard.Controls.Add(value, compact ? i % 2 : 1, compact ? i / 2 * 2 + 1 : i);
+        }
+        MinimumSize = compact ? new Size(640, 360) : new Size(850, 600);
+        Size = compact ? new Size(760, 430) : new Size(980, 720);
+        UpdateTextWidths();
+        dashboard.ResumeLayout(true);
+        ResumeLayout(true);
+        if (!compact)
+            RenderLog();
+    }
+
+    private void UpdateTextWidths()
+    {
+        alerts.MaximumSize = new Size(Math.Max(100, ClientSize.Width - 36), 0);
+        int width = Math.Max(100, (ClientSize.Width - 40) / 2 - 12);
+        foreach (Label value in new[] { connection, gnss, fix, has, solution, age })
+            value.MaximumSize = new Size(width, 0);
+        if (compact)
+        {
+            int height = 0;
+            Label[] values = { connection, gnss, fix, has, solution, age };
+            int[] order = { 1, 2, 3, 4, 0, 5 };
+            for (int i = 0; i < order.Length; i += 2)
+            {
+                Label leftTitle = fieldTitles[order[i]], rightTitle = fieldTitles[order[i + 1]];
+                Label left = values[order[i]], right = values[order[i + 1]];
+                height += Math.Max(leftTitle.GetPreferredSize(new Size(width, 0)).Height + leftTitle.Margin.Vertical,
+                    rightTitle.GetPreferredSize(new Size(width, 0)).Height + rightTitle.Margin.Vertical);
+                height += Math.Max(left.GetPreferredSize(new Size(width, 0)).Height + left.Margin.Vertical,
+                    right.GetPreferredSize(new Size(width, 0)).Height + right.Margin.Vertical);
+            }
+            dashboard.MinimumSize = new Size(0, height);
+        }
+        else
+            dashboard.MinimumSize = Size.Empty;
     }
 
     private async Task StartAsync()
@@ -226,12 +307,25 @@ public sealed class Form1 : Form
             { } value => value, _ => "No disponible"
         };
         double? elapsed = latestTick is long tick ? Stopwatch.GetElapsedTime(tick).TotalMilliseconds : null;
-        age.Text = elapsed.HasValue ? $"{elapsed.Value / 1000:F1} s" : "Sin respuesta válida completa";
+        age.Text = elapsed.HasValue ? $"{latestAt!.Value.ToLocalTime():HH:mm:ss} · hace {elapsed.Value / 1000:F1} s" : "Sin respuesta válida completa";
+        bool stale = !connected || !elapsed.HasValue || elapsed.Value > StaleThresholdMs || responseAlert.Length > 0;
+        if (connected)
+            connection.Text = stale ? "Conectado · Sin datos actuales" : "Conectado · Salud correcta";
+        connection.ForeColor = connected && !stale ? Color.DarkGreen : Color.DarkOrange;
+        gnss.ForeColor = stale ? Color.DimGray : latest?.Gnss is "OK" or "UP" ? Color.DarkGreen : Color.Firebrick;
+        fix.ForeColor = stale ? Color.DimGray : latest?.FixIn > 0 ? Color.DarkGreen : Color.Firebrick;
+        has.ForeColor = stale ? Color.DimGray : has.Text == "Activo" ? Color.DarkGreen : Color.DarkOrange;
+        solution.ForeColor = stale ? Color.DimGray : latest?.Solution is "NOFIX" or "UNKNOWN" ? Color.Firebrick : Color.DarkGreen;
+        age.ForeColor = stale ? Color.DarkOrange : Color.DarkGreen;
         var warnings = new List<string>();
         if (!connected && connection.Text != "Conectando…")
             warnings.Add("Telnet desconectado.");
         if (connected)
         {
+            if (latest?.Gnss is "FAIL" or "KO" or "DOWN")
+                warnings.Add("Fallo GNSS.");
+            if (latest?.FixIn == 0 || latest?.Solution == "NOFIX")
+                warnings.Add("Sin solución GNSS.");
             if (responseAlert.Length > 0)
                 warnings.Add(responseAlert);
             double silence = elapsed ?? Stopwatch.GetElapsedTime(startedTick).TotalMilliseconds;
@@ -239,7 +333,7 @@ public sealed class Form1 : Form
                 warnings.Add("Datos obsoletos: no se recibe un estado completo actualizado.");
         }
         string message = string.Join(" · ", warnings);
-        alerts.Text = message.Length == 0 ? "Sin alertas." : message;
+        alerts.Text = message.Length == 0 ? "Sin alarmas activas." : "Alarmas: " + message;
         alerts.ForeColor = message.Length == 0 ? Color.DarkGreen : Color.Firebrick;
         if (message != lastAlert)
         {
@@ -247,6 +341,7 @@ public sealed class Form1 : Form
                 AddLog("Alerta: " + message);
             lastAlert = message;
         }
+        UpdateTextWidths();
     }
 
     private int StaleThresholdMs => Math.Max(5000, pollMs * 3);
@@ -259,6 +354,12 @@ public sealed class Form1 : Form
         logs.Enqueue(new LogEntry(DateTimeOffset.Now, safe));
         while (logs.Count > 300)
             logs.Dequeue();
+        if (!compact)
+            RenderLog();
+    }
+
+    private void RenderLog()
+    {
         logView.Text = string.Join(Environment.NewLine, logs.Select(entry => $"[{entry.Fecha:O}] {entry.Mensaje}"));
         logView.SelectionStart = logView.TextLength;
         logView.ScrollToCaret();
@@ -321,5 +422,15 @@ public sealed class Form1 : Form
         }
         timer.Dispose();
         base.OnFormClosing(e);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            compactFont.Dispose();
+            healthFont.Dispose();
+        }
+        base.Dispose(disposing);
     }
 }
