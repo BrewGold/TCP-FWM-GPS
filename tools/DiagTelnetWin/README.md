@@ -32,6 +32,28 @@ Ejecutar `DiagTelnetWin.exe` en
 Para Windows ARM64, sustituir `win-x64` por `win-arm64`.
 La compilación cruzada es posible; la interfaz solo se ejecuta en Windows.
 
+## Empaquetado portable (ZIP)
+
+Con el SDK de .NET 8 instalado, ejecutar con doble clic
+`tools/DiagTelnetWin/package-win.bat` en Windows. Publica la versión `v1.0.0`
+en modo Release, autónoma y single-file, sin símbolos de depuración.
+
+Desde la raíz del repositorio, los resultados quedan en:
+
+- Carpeta portable: `dist/DiagTelnetWin-win-x64/`.
+- ZIP para distribución: `dist/DiagTelnetWin-win-x64.zip`.
+
+Extraer todo el ZIP y ejecutar `DiagTelnetWin.exe`; no requiere instalación
+ni .NET en el equipo destino. El paquete incluye instrucciones de conexión
+y `VERSION.txt`. Si falla la restauración o publicación, el script aborta
+sin empaquetar archivos antiguos. No añadir las salidas generadas al repositorio.
+
+Para ARM64 o una versión distinta, ejecutar en PowerShell:
+
+```powershell
+.\tools\DiagTelnetWin\package-win.ps1 -Runtime win-arm64 -Configuration Release -Version v1.0.0
+```
+
 ## Configuración de ejemplo
 
 Introducir en la ventana (no se necesita archivo de configuración):
