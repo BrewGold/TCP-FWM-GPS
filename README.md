@@ -1,6 +1,6 @@
-# TCP-FWM-GPS (RS232-FWD-GPS)
+# TCP-FWM-GPS (TCP-FWD-GPS)
 
-Sistema GNSS para Dynatest FWD con receptor ArduSimple simpleRTK3B Budget (UM980) y controlador Adafruit Metro RP2040 (configuración RS232 2003).
+Sistema GNSS para Dynatest FWD con receptor ArduSimple simpleRTK3B Budget (UM980) y controlador Adafruit Metro RP2040. La salida NMEA y el diagnóstico se ofrecen mediante servidores TCP en los puertos 15919 y 15920, respectivamente.
 
 ## Estado actual (2026-10-13)
 
@@ -286,7 +286,7 @@ Para E6-HAS se requiere versión/familia compatible del firmware UM980.
 - ArduSimple simpleRTK3B Budget (UM980)
 - SparkFun ICM-20948
 - W5500 Ethernet shield
-- MAX3232 o equivalente para RS232
+- MAX3232 o equivalente para adaptación de nivel de COM2
 - 2 LEDs + resistencias (220 Ω)
 
 ## Autor
