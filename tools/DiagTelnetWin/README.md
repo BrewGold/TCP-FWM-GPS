@@ -1,9 +1,11 @@
-# Diagnóstico Windows por Telnet (sin COM2)
+# Diagnóstico TCP en Windows por Telnet (puerto 15920, sin COM2)
 
 Aplicación independiente WinForms, .NET 8, con interfaz en español. Consulta
 únicamente el endpoint de diagnóstico Telnet/TCP mediante `status\r\n`.
 No modifica el firmware, el IDE ni la configuración del receptor; no envía
 `diag`, `freq`, `com2` ni comandos de configuración.
+El servidor TCP NMEA usa el puerto `15919`; esta aplicación consulta el
+servidor TCP de diagnóstico en el puerto `15920`.
 
 **COM2 NO se consume por esta aplicación. COM2 permanece para diagnóstico
 directo del usuario.** No se abre ningún puerto serie, no se conecta al servidor
