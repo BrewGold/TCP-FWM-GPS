@@ -22,6 +22,27 @@ const string rev4 = """
     ============================
     Servidor diagnostico TCP 15920: LISTEN
     """;
+string preferencesDirectory = Path.Combine(Path.GetTempPath(), "DiagTelnetWin.Tests-" + Guid.NewGuid());
+string preferencesPath = Path.Combine(preferencesDirectory, "vista.json");
+try
+{
+    Check(ViewPreferences.LoadCompact(preferencesPath), "primera ejecución en modo compacto");
+    Check(ViewPreferences.SaveCompact(preferencesPath, false), "guardar modo completo y crear directorio");
+    Check(!ViewPreferences.LoadCompact(preferencesPath), "modo completo persiste entre lecturas");
+    Check(ViewPreferences.SaveCompact(preferencesPath, true) && ViewPreferences.LoadCompact(preferencesPath), "modo compacto persiste entre lecturas");
+    foreach (string invalid in new[] { "{", "null", "[]", "{}", """{"Compacto":"false"}""", new string('x', 1025) })
+    {
+        File.WriteAllText(preferencesPath, invalid);
+        Check(ViewPreferences.LoadCompact(preferencesPath), "preferencia ausente, inválida o excesiva usa modo compacto");
+    }
+    Check(!ViewPreferences.SaveCompact(preferencesDirectory, false), "error de escritura no bloquea la aplicación");
+}
+finally
+{
+    if (Directory.Exists(preferencesDirectory))
+        Directory.Delete(preferencesDirectory, recursive: true);
+}
+
 DeviceStatus? parsed = StatusParser.Parse(rev4.Replace("\n", "\r\n"));
 Check(parsed is { Gnss: "OK", FixIn: 5, Has: "ACTIVO", Solution: "HAS" }, "formato Rev.4; no confundir fix de entrada y salida");
 Check(parsed!.MissingKeys.Length == 0, "claves completas");

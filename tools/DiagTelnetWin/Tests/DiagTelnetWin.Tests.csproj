@@ -10,6 +10,7 @@
     <ItemGroup>
       <Compile Include="../StatusParser.cs" Link="StatusParser.cs" />
       <Compile Include="../TelnetSession.cs" Link="TelnetSession.cs" />
+      <Compile Include="../ViewPreferences.cs" Link="ViewPreferences.cs" />
     </ItemGroup>
 
   </Project>
