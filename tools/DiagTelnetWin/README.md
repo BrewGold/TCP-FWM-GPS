@@ -84,6 +84,35 @@ El panel muestra GNSS, FIX_IN, HAS, solución, conexión y edad de la última
 frescura de la telemetría Telnet, **no** antigüedad de la última medida GNSS:
 el firmware actual no publica esa edad en `status`.
 
+### Dashboard
+
+- Cinco tarjetas muestran **GNSS / FIX_IN / HAS / Tipo de solución / Telnet**.
+  El semáforo combina color y texto: verde **Correcto**, amarillo **Atención**
+  y rojo **Alarma**, sin depender exclusivamente del color.
+- GNSS correcto es verde y fallo es rojo. FIX_IN `0` es rojo, `4` (RTK fijo)
+  verde y los demás valores válidos amarillos (incluidos flotante, estimado,
+  manual y simulado). HAS activo es verde e inactivo amarillo.
+  Solución `HAS`/`RTK_FIX` es verde, `NOFIX` roja y las demás amarillas;
+  `RTK` sin especificar no se interpreta como RTK fijo. Cada campo es independiente:
+  no se deduce HAS ni solución a partir de FIX_IN.
+- Un campo ausente muestra **No disponible** en amarillo. Sin conexión,
+  con respuesta incompleta/inválida o con datos obsoletos, las tarjetas de
+  telemetría conservan el texto pero muestran amarillo **Sin actualizar**.
+  Telnet desconectado es rojo; conectando o conectado sin estado fresco es
+  amarillo; conectado con respuesta completa vigente es verde.
+- **Posición y tiempos** reserva latitud/longitud y altitud como **No disponible**:
+  el modelo del parser actual no expone estos campos. No se analiza el registro
+  ni se añade una lectura NMEA para completarlos. Muestra la última respuesta
+  completa válida en UTC, su edad Telnet y el intervalo de consulta.
+- **Alarmas activas** lista fallos GNSS, ausencia de fijación/solución, HAS
+  inactivo y avisos de conexión, respuesta incompleta y datos obsoletos.
+  La **consola inferior** mantiene las respuestas originales, registro acotado
+  y exportación. Si falta espacio o se amplía la escala de Windows, el área
+  superior permite desplazamiento sin ocultar la consola.
+
+Solo cambia la presentación; se conservan el parser, la conexión TCP, los
+comandos, plazos y criterio de respuesta válida. No se modifica el firmware.
+
 Se reconocen tanto las etiquetas Rev.4 como pares de claves, sin distinguir
 mayúsculas ni acentos:
 
@@ -143,7 +172,8 @@ dotnet run --project tools/DiagTelnetWin/Tests/DiagTelnetWin.Tests.csproj -c Rel
 
 Comprueban los formatos de firmware, campos ausentes/malformados, límites,
 negociación Telnet fragmentada, UTF-8, consultas contra un servidor TCP local,
-timeout, cancelación y desconexión. No requieren un dispositivo.
+timeout, cancelación, desconexión y el mapeo visual de estados/frescura.
+No requieren un dispositivo.
 
 Comprobación manual en Windows:
 
@@ -158,3 +188,12 @@ Comprobación manual en Windows:
    permiso de escritura para comprobar el mensaje de error.
 6. Pulsar Desconectar y cerrar la ventana durante una lectura: comprobar que
    termina sin bloquearse y que COM2 sigue disponible para el usuario.
+7. Comprobar semáforos con `GNSS=OK FIX_IN=4 HAS=ON SOL=RTK_FIX`,
+   `GNSS=OK FIX_IN=5 HAS=OFF SOL=RTK_FLOAT` y
+   `GNSS=FAIL FIX_IN=0 HAS=OFF SOL=NOFIX`. Verificar también campos ausentes,
+   transición a datos obsoletos y desconexión: ninguna lectura retenida debe
+   parecer vigente en verde.
+8. Redimensionar a tamaño mínimo y probar escala 125–150 %: tarjetas, tiempos
+   y alarmas accesibles mediante desplazamiento y consola inferior visible.
+   Las coordenadas/altitud deben seguir como No disponible. Capturar la ventana
+   en Windows para revisión visual (WinForms no se ejecuta en Linux).

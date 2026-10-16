@@ -42,6 +42,31 @@ Check(StatusParser.Parse("[DIAG]\nGNSS=FAIL FIX_IN=0 HAS=OFF SOL=NOFIX\n" + rev4
 Check(StatusParser.Parse("=== ESTADO ACTUAL ===\nlinea malformada\n===================")?.MissingKeys.Length == 4, "bloque vacío señala todas las claves ausentes");
 Check(StatusParser.Parse(new string('x', 65537)) is null, "límite del parser");
 
+Check(StatusPresentation.Gnss("OK").Level == SignalLevel.Green
+    && StatusPresentation.Gnss("FAIL").Level == SignalLevel.Red
+    && StatusPresentation.Gnss(null).Level == SignalLevel.Yellow, "semáforo GNSS y dato ausente");
+Check(StatusPresentation.Fix(0).Level == SignalLevel.Red
+    && StatusPresentation.Fix(4).Level == SignalLevel.Green, "semáforo FIX_IN sin fijación y RTK fijo");
+foreach (int fix in new[] { 1, 2, 3, 5, 6, 7, 8 })
+    Check(StatusPresentation.Fix(fix).Level == SignalLevel.Yellow, $"FIX_IN {fix} no se presenta como RTK fijo");
+Check(StatusPresentation.Fix(null).Level == SignalLevel.Yellow, "FIX_IN ausente no implica sin fijación");
+foreach (string active in new[] { "ON", "SI", "ACTIVO", "TRUE", "1" })
+    Check(StatusPresentation.Has(active).Level == SignalLevel.Green, $"HAS activo: {active}");
+foreach (string inactive in new[] { "OFF", "NO", "INACTIVO", "FALSE", "0" })
+    Check(StatusPresentation.Has(inactive) is { Text: "Inactivo", Level: SignalLevel.Yellow }, $"HAS inactivo: {inactive}");
+Check(StatusPresentation.Has(null).Text == "No disponible", "HAS ausente no implica inactivo");
+foreach (string solution in new[] { "HAS", "RTK_FIX" })
+    Check(StatusPresentation.Solution(solution).Level == SignalLevel.Green, $"solución precisa: {solution}");
+foreach (string solution in new[] { "GPS", "DGPS", "RTK", "RTK_FLOAT", "UNKNOWN" })
+    Check(StatusPresentation.Solution(solution).Level == SignalLevel.Yellow, $"solución con atención: {solution}");
+Check(StatusPresentation.Solution("NOFIX").Level == SignalLevel.Red
+    && StatusPresentation.Solution(null).Level == SignalLevel.Yellow, "solución ausente distinta de sin solución");
+var good = StatusPresentation.Gnss("OK");
+Check(StatusPresentation.Freshness(good, false) is { Text: "Correcto", Level: SignalLevel.Yellow }
+    && StatusPresentation.Freshness(good, true) == good, "lectura retenida no muestra verde sin datos actualizados");
+Check(parsed is { Gnss: "OK", FixIn: 5, Has: "ACTIVO", Solution: "HAS" },
+    "mapeo visual no modifica el estado recibido");
+
 var filter = new StatusResponseFilter();
 Check(StatusParser.Parse(filter.Append(rev4 + "\r\n[DIA"))?.FixIn == 5, "status seguido de cabecera espontánea incompleta");
 Check(StatusParser.Parse(filter.Append("G]\r\nGNSS=OK FIX_IN=5 HAS=ON SOL=HAS\r\n")) is null, "fragmento espontáneo entre consultas no se acepta como status");
