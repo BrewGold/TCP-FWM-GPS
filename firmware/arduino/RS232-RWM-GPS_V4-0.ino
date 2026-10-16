@@ -848,7 +848,12 @@ bool parseGGA(const char* line) {
   }
 
   if (!validateNmeaChecksum(line)) {
-    Serial.println("[GNSS] Error checksum GGA");
+    static uint32_t lastErrMs = 0;
+    uint32_t now = millis();
+    if (now - lastErrMs >= 1000) {
+      Serial.println("[GNSS] Error checksum GGA");
+      lastErrMs = now;
+    }
     return false;
   }
 
@@ -987,7 +992,12 @@ bool parseRMC(const char* line) {
   }
 
   if (!validateNmeaChecksum(line)) {
-    Serial.println("[GNSS] Error checksum RMC");
+    static uint32_t lastErrMs = 0;
+    uint32_t now = millis();
+    if (now - lastErrMs >= 1000) {
+      Serial.println("[GNSS] Error checksum RMC");
+      lastErrMs = now;
+    }
     return false;
   }
 
@@ -1047,6 +1057,21 @@ void processGnssLine(const char* line) {
   if (
     line == nullptr ||
     line[0] == '\0'
+  ) {
+    return;
+  }
+
+  const size_t len = strlen(line);
+  if (line[0] != '$' || len < 12) {
+    return;
+  }
+
+  const char* ast = strrchr(line, '*');
+  if (
+    ast == nullptr ||
+    (size_t)(ast - line) + 3 != len ||
+    !isxdigit((unsigned char)ast[1]) ||
+    !isxdigit((unsigned char)ast[2])
   ) {
     return;
   }
