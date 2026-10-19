@@ -1108,7 +1108,7 @@ void readGNSS() {
   updateHexCapture();
   while (Serial1.available() > 0) {
     char character = (char)Serial1.read();
-    
+
 
     if (hexCaptureState == HEX_CAPTURING) {
       updateHexCapture();
