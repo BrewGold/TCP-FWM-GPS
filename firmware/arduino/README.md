@@ -130,6 +130,13 @@ DiagTelnetWin sigue recibiendo delimitadores `STATUS`, `[DIAG]` y claves
 GNSS/fix/HAS/solución compatibles; la velocidad se conserva en el registro,
 sin exigir cambios del cliente.
 
+También pasó la suite existente del cliente (.NET 8), incluidos sus casos IRI
+y sesiones TCP fragmentadas, ejecutada con:
+
+```sh
+dotnet run --project "$REPO/tools/DiagTelnetWin/Tests/DiagTelnetWin.Tests.csproj"
+```
+
 **Pendiente con hardware** (no se han probado físicamente LEDs, RS232, W5500,
 DHCP, temporización real ni carga USB en esta sesión):
 
