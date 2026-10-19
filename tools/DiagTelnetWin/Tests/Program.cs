@@ -25,6 +25,26 @@ const string rev4 = """
 DeviceStatus? parsed = StatusParser.Parse(rev4.Replace("\n", "\r\n"));
 Check(parsed is { Gnss: "OK", FixIn: 5, Has: "ACTIVO", Solution: "HAS" }, "formato Rev.4; no confundir fix de entrada y salida");
 Check(parsed!.MissingKeys.Length == 0, "claves completas");
+const string iri = """
+    ========== STATUS ==========
+    Producto: TCP-IRI-GPS
+    GNSS: OK
+    GGA entrada fix: 5
+    HAS: ACTIVO
+    Solucion: HAS
+    LAT: 40.12345678
+    LON: -3.45678901
+    ALT: 650.00 m
+    Velocidad: 12.345 m/s
+    IMU: OFF (sin magnetometro)
+    Estado: MOVING (GNSS directo, sin promedio ni offset)
+    Fix salida: 5
+    ============================
+    """;
+Check(StatusParser.Parse(iri) is { Gnss: "OK", FixIn: 5, Has: "ACTIVO", Solution: "HAS" },
+    "TCP-IRI-GPS con identidad y velocidad mantiene compatibilidad status");
+Check(StatusParser.Parse(iri.Replace("12.345", "nan"))?.MissingKeys.Length == 0,
+    "velocidad no disponible en IRI no invalida las claves GNSS");
 Check(StatusParser.Parse("""
     === ESTADO ACTUAL ===
     Estado GNSS: OK
@@ -102,6 +122,13 @@ try
     await Task.Delay(350, deadline.Token);
     await stream.WriteAsync(response.AsMemory(25), deadline.Token);
     Check((await polling).Status?.FixIn == 5, "respuesta TCP fragmentada con pausa");
+
+    polling = session.PollAsync(deadline.Token);
+    Check(await reader.ReadLineAsync(deadline.Token) == "status", "consulta IRI conserva protocolo");
+    await stream.WriteAsync(Encoding.UTF8.GetBytes(iri + "\r\n"), deadline.Token);
+    PollResult iriResult = await polling;
+    Check(iriResult.Status?.FixIn == 5 && iriResult.Raw.Contains("Velocidad: 12.345 m/s"),
+        "Telnet IRI conserva velocidad en el registro de diagnóstico");
 
     polling = session.PollAsync(deadline.Token);
     Check(await reader.ReadLineAsync(deadline.Token) == "status", "segunda consulta sigue siendo solo status");
