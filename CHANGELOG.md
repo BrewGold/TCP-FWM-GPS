@@ -5,6 +5,17 @@ Todos los cambios notables en este proyecto están documentados aquí.
 El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [Unreleased]
+
+- TCP-IRI-GPS como carpeta Arduino autónoma con implementación y parser locales;
+  eliminado el antiguo wrapper, sin cambios al firmware FWM.
+- GNSS directo sin IMU, calibración, offset ni estados de promedio/bloqueo.
+  Conservados LEDs, W5500, COM2 PIO, puertos y formato `$GPGGA`.
+- Validación GNSS y velocidad RMC directa con frescura, `N/A` en diagnóstico
+  cuando no está disponible; HAS se desactiva al perder fix.
+- Pruebas host con sanitizers y build RP2040 real; instrucciones reproducibles
+  y pruebas físicas pendientes documentadas.
+
 ## [3.0.0] - 2026-10-09
 
 ### 🔄 Modificado

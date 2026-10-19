@@ -5,9 +5,13 @@ y las revisiones históricas para Metro M4 y Arduino UNO R4 WiFi.
 
 ## TCP-IRI-GPS: movimiento continuo
 
-`TCP-IRI-GPS.ino` selecciona la variante IRI con `TCP_IRI_GPS`. Ambos proyectos
-comparten `shared/TcpGpsFirmware.h`; Rev.4.0 sin ese símbolo conserva su lógica
-FWM. No cargar ambos sketches en la misma carpeta de Arduino.
+Abrir **`TCP-IRI-GPS/TCP-IRI-GPS.ino`**: carpeta Arduino autónoma con implementación
+real de `setup`/`loop`, LEDs, COM2 PIO y W5500 en el sketch, y parser/estado GNSS y
+generación NMEA en su archivo local `Gnss.h`. Se puede copiar **solo esa carpeta**.
+No incluye `shared/`, otro `.ino` ni un selector `TCP_IRI_GPS`.
+Se eliminó el antiguo wrapper `firmware/arduino/TCP-IRI-GPS.ino` para evitar dos
+entradas distintas. FWM sigue usando `RS232-RWM-GPS_V4-0.ino` y
+`shared/TcpGpsFirmware.h`, sin cambios en sus fuentes.
 
 IRI usa la misma placa, cableado GNSS, COM2 PIO y W5500 de Rev.4.0:
 
@@ -20,9 +24,14 @@ IRI usa la misma placa, cableado GNSS, COM2 PIO y W5500 de Rev.4.0:
   Mantiene `$GPGGA`, checksum/CRLF, frecuencia 1–10 Hz, TCP 15919 y COM2 D2.
 - Velocidad directa desde RMC válido: nudos × 0.51444 = m/s, sin promedio.
   Se registra en `status` (`Velocidad`), `[DIAG]` (`SPD`, cada 5 s por defecto)
-  y monitor USB junto a cada transmisión. `nan` significa dato no disponible:
+  y monitor USB junto a cada transmisión. `N/A` significa dato no disponible:
   antes del primer RMC, RMC inactivo/velocidad inválida, o más de 2 s sin RMC.
-  No se presenta la falta de velocidad como cero. GGA caducado detiene la salida.
+  No se presenta la falta de velocidad como cero. GGA caducado (>2 s) o fix cero
+  detiene la salida y desactiva HAS. Un RMC inválido (incluido checksum incorrecto,
+  truncado o modo N) invalida inmediatamente la velocidad, sin alterar la posición
+  GGA. Un GGA con checksum incorrecto no actualiza posición ni frescura; uno con
+  checksum válido pero campos inválidos invalida el fix. Se validan coordenadas,
+  hemisferios, UTC, calidad, satélites, HDOP y altitud: no se inventan ceros.
 - Conserva la prueba de ambos LEDs al arrancar (5 s). LED1/D5: apagado sin
   GNSS, parpadeo 600 ms con GNSS sin HAS, fijo con HAS. La ausencia intencional
   de IMU no activa el aviso de fallo de 200 ms. LED2/D6 conserva el significado
@@ -33,23 +42,103 @@ IRI usa la misma placa, cableado GNSS, COM2 PIO y W5500 de Rev.4.0:
 
 ### Compilar y seleccionar IRI
 
-Instalar Arduino-Pico y Ethernet como para Rev.4.0. Desde la raíz del repositorio:
+Versiones verificadas: **Arduino CLI 1.3.1**, **Arduino-Pico 5.4.3**
+(Earle Philhower), **Ethernet 2.0.2** de Arduino. `SerialPIO`, SPI y Pico SDK
+pertenecen al core. No necesita SparkFun ICM-20948, Wire ni EEPROM.
+Placa confirmada mediante `arduino-cli board details`:
+**Adafruit Metro RP2040, `rp2040:rp2040:adafruit_metro`** (opciones predeterminadas).
+No seleccionar el core Arduino Mbed ni compilar el directorio superior con sus
+sketches históricos.
 
 ```sh
-mkdir -p /tmp/TCP-IRI-GPS
-cp "$PWD/firmware/arduino/TCP-IRI-GPS.ino" /tmp/TCP-IRI-GPS/
-cp -R "$PWD/firmware/arduino/shared" /tmp/TCP-IRI-GPS/
-arduino-cli compile --fqbn rp2040:rp2040:adafruit_metro --warnings all /tmp/TCP-IRI-GPS
+REPO=/home/runner/work/TCP-FWM-GPS/TCP-FWM-GPS # ajustar a la ruta absoluta local
+INDEX=https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
+arduino-cli core update-index --additional-urls "$INDEX"
+arduino-cli core install rp2040:rp2040@5.4.3 --additional-urls "$INDEX"
+arduino-cli lib install "Ethernet@2.0.2"
+arduino-cli board details --fqbn rp2040:rp2040:adafruit_metro
+arduino-cli compile --fqbn rp2040:rp2040:adafruit_metro --warnings all \
+  "$REPO/firmware/arduino/TCP-IRI-GPS"
+arduino-cli board list
+# Sustituir /dev/ttyACM0 por el puerto real; en primera carga usar BOOTSEL si hace falta.
+arduino-cli upload --fqbn rp2040:rp2040:adafruit_metro --port /dev/ttyACM0 \
+  "$REPO/firmware/arduino/TCP-IRI-GPS"
 ```
 
-En Arduino IDE abrir `/tmp/TCP-IRI-GPS/TCP-IRI-GPS.ino` con `shared/` presente.
+Cableado inalterado: UM980 Serial1 D0 RX/D1 TX a 115200; COM2/RS232 D2 TX-only
+PIO a 38400/8N1 hacia el transceptor del shield; W5500 por SPI ICSP, CS D10 y
+SD deseleccionada en D4. TCP NMEA 15919 (hasta 4 clientes), diagnóstico 15920
+(1 cliente), DHCP con respaldo `192.168.1.22/24`, gateway/DNS `192.168.1.1`.
+Salida `$GPGGA` con checksum y CRLF, 10 Hz por defecto, `freq 1..10` configurable.
+Conserva recuperación Ethernet cooperativa y vaciado incremental del FIFO PIO.
+No cambia talker, precisión decimal ni formato heredado de salida.
+
+En Arduino IDE abrir la carpeta autónoma IRI con `Gnss.h` presente.
 Para volver a FWM compilar/cargar `RS232-RWM-GPS_V4-0.ino` con su copia de
 `shared/`, según las instrucciones de Rev.4.0.
 
 ### Validación de IRI
 
-Compilación y pruebas de protocolo Telnet verificables sin placa; la prueba
-física sigue siendo necesaria:
+Validado en este cambio (2026-10-19): compilación **real RP2040** con las versiones
+anteriores; 107836 bytes de programa, 24512 bytes globales de RAM. El sketch se
+compila directamente como carpeta independiente, sin concatenar otros `.ino`.
+También se comprobó una copia aislada de esa carpeta.
+
+Límites del entorno: `downloads.arduino.cc` no resolvía por DNS, de modo que
+`core update-index` no pudo obtener los índices generales ni discovery.
+CLI 1.3.1 se obtuvo de su release oficial GitHub, el core mediante `core install`
+y Ethernet de su archivo oficial de tag, instalado mediante `lib install --zip-path`.
+El primer build se detuvo por ausencia del `ctags` de Arduino; tras instalar su
+release oficial 5.8-arduino11, el build terminó con código 0. Comandos adicionales
+usados en este entorno (los errores de índices/discovery no impidieron compilar):
+
+```sh
+mkdir -p /tmp/iri-tools
+curl -fL https://github.com/arduino/arduino-cli/releases/download/v1.3.1/arduino-cli_1.3.1_Linux_64bit.tar.gz \
+  -o /tmp/iri-tools/cli.tar.gz
+tar -xzf /tmp/iri-tools/cli.tar.gz -C /tmp/iri-tools
+curl -fL https://github.com/arduino-libraries/Ethernet/archive/refs/tags/2.0.2.zip \
+  -o /tmp/iri-tools/Ethernet-2.0.2.zip
+/tmp/iri-tools/arduino-cli config set library.enable_unsafe_install true
+/tmp/iri-tools/arduino-cli lib install --zip-path /tmp/iri-tools/Ethernet-2.0.2.zip
+/tmp/iri-tools/arduino-cli config set library.enable_unsafe_install false
+curl -fL https://github.com/arduino/ctags/releases/download/5.8-arduino11/ctags-5.8-arduino11-x86_64-pc-linux-gnu.tar.bz2 \
+  -o /tmp/iri-tools/ctags.tar.bz2
+tar -xjf /tmp/iri-tools/ctags.tar.bz2 -C /tmp/iri-tools
+/tmp/iri-tools/arduino-cli compile --fqbn rp2040:rp2040:adafruit_metro --warnings all \
+  --build-property runtime.tools.ctags.path=/tmp/iri-tools \
+  "$REPO/firmware/arduino/TCP-IRI-GPS"
+```
+
+Pruebas host reproducibles, sin bibliotecas de test adicionales:
+
+```sh
+g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \
+  -DARDUINO_ADAFRUIT_METRO_RP2040 -DARDUINO_ARCH_RP2040 \
+  -I"$REPO/firmware/tests/stubs" "$REPO/firmware/tests/TcpIriGpsTest.cpp" \
+  -o /tmp/TcpIriGpsTest
+/tmp/TcpIriGpsTest
+```
+
+El test incluye el sketch real con dobles de hardware: prueba LEDs de arranque,
+25 s de coordenadas cambiantes a velocidad cero sin promedio/bloqueo, mismas tramas
+COM2/TCP con fix 1/2/4/5 y checksum/CRLF, validación y pérdida de fix, RMC
+válido/vacío/inactivo/corrupto/caducado, rollover de `millis`, status y `[DIAG]`,
+comandos y rechazo de calibración. No hay stubs de IMU/EEPROM: incluirlos por
+accidente haría fallar la compilación host. No sustituye el build RP2040.
+DiagTelnetWin sigue recibiendo delimitadores `STATUS`, `[DIAG]` y claves
+GNSS/fix/HAS/solución compatibles; la velocidad se conserva en el registro,
+sin exigir cambios del cliente.
+
+También pasó la suite existente del cliente (.NET 8), incluidos sus casos IRI
+y sesiones TCP fragmentadas, ejecutada con:
+
+```sh
+dotnet run --project "$REPO/tools/DiagTelnetWin/Tests/DiagTelnetWin.Tests.csproj"
+```
+
+**Pendiente con hardware** (no se han probado físicamente LEDs, RS232, W5500,
+DHCP, temporización real ni carga USB en esta sesión):
 
 1. Sin IMU conectada, comprobar banner IRI y ausencia de reintentos I2C.
 2. Inyectar GGA sucesivos con coordenadas/altitud distintas y RMC a 0 m/s
@@ -58,7 +147,7 @@ física sigue siendo necesaria:
 3. Probar fix 1/2/4/5 y verificar el mismo fix en `$GPGGA`, checksum y CRLF.
 4. Probar RMC a 10 nudos (`5.144 m/s`), otro a 20 (`10.289 m/s`), velocidad
    cero, campo vacío, negativo, estado V y checksum incorrecto. No mezclar
-   velocidades; sin RMC durante más de 2 s debe indicar `nan`.
+   velocidades; sin RMC durante más de 2 s debe indicar `N/A`.
 5. Consultar `status`, activar `diag on` y comprobar velocidad e identidad en
    TCP 15920 y USB; verificar `com2`, `freq`, `help`, `diag off`, `debug hex`.
 6. Verificar LEDs en arranque, sin GNSS, con fix 1 y con HAS; D6 siempre MOVING.

@@ -5,14 +5,16 @@ Sistema GNSS para Dynatest FWD con receptor ArduSimple simpleRTK3B Budget (UM980
 ## TCP-IRI-GPS: variante de movimiento continuo
 
 Este repositorio también incluye **TCP-IRI-GPS**, para el mismo Metro RP2040,
-GNSS UM980 y W5500. Es un proyecto seleccionable, no sustituye a TCP-FWM-GPS:
+GNSS UM980 y W5500. Es un proyecto **autónomo**, no sustituye a TCP-FWM-GPS:
 
 - Sin magnetómetro/IMU, calibración ni offset antena-pistón.
 - Latitud, longitud y altitud instantáneas, sin promedio, smoothing ni bloqueo;
   conserva la calidad de fix del GGA recibido.
 - Conserva COM2 D2, TCP NMEA 15919, diagnóstico 15920 y LEDs D5/D6.
   LED1 indica GNSS/HAS sin exigir IMU; LED2 permanece apagado (MOVING).
-- Registra velocidad RMC en m/s en `status`, `[DIAG]` y monitor USB.
+- Registra velocidad RMC en m/s en `status`, `[DIAG]` y monitor USB (`N/A` si
+  no es válida o tiene más de 2 s). Proyecto compilado para RP2040 y probado
+  en host; validación física pendiente.
 
 Selección, compilación y pruebas de banco:
 [TCP-IRI-GPS en el README del firmware](firmware/arduino/README.md#tcp-iri-gps-movimiento-continuo).
@@ -74,8 +76,10 @@ Flujo principal:
 ## Estructura del repositorio
 
 - `firmware/arduino/RS232-RWM-GPS_V4-0.ino`: versión actual de firmware (Metro RP2040).
-- `firmware/arduino/TCP-IRI-GPS.ino`: proyecto de movimiento continuo, sin magnetómetro ni promedio.
-- `firmware/arduino/shared/TcpGpsFirmware.h`: implementación compartida de ambas aplicaciones.
+- `firmware/arduino/TCP-IRI-GPS/TCP-IRI-GPS.ino`: aplicación independiente de movimiento continuo.
+- `firmware/arduino/TCP-IRI-GPS/Gnss.h`: GNSS directo y protocolo NMEA locales, sin magnetómetro ni promedio.
+- `firmware/arduino/shared/TcpGpsFirmware.h`: implementación conservada de FWM; IRI ya no depende de ella.
+- `firmware/tests/TcpIriGpsTest.cpp`: pruebas host del sketch IRI real con hardware simulado.
 - `firmware/arduino/RS232-RWM-GPS_V3-0.ino`: revisión histórica Metro M4.
 - `firmware/arduino/RS232-RWM-GPS_V2-9.ino`: puente temporal UNO R4, sin IMU/I2C.
 - `firmware/arduino/RS232-RWM-GPS_V2-8.ino`: última base UNO R4, conservada.
