@@ -4,6 +4,22 @@
 
 Este documento recoge decisiones y validaciones de la fase de estabilización de entrada GNSS y salida NMEA.
 
+## TCP-IRI-GPS autónomo
+
+La nueva aplicación está en `firmware/arduino/TCP-IRI-GPS/TCP-IRI-GPS.ino`
+con su parser local `Gnss.h`; ya no utiliza el wrapper superior ni el header
+compartido de FWM. Mantiene GNSS/HAS, LEDs D5/D6 (D6 apagado en modo directo),
+COM2 D2 y W5500 TCP 15919/15920; no usa IMU, EEPROM, yaw, promedio ni bloqueo.
+Velocidad RMC directa en m/s en diagnóstico, `N/A` cuando no está disponible.
+
+Versiones, comandos reproducibles de compilación/carga, pruebas host ejecutadas
+y límites de red se detallan en
+[README del firmware](../firmware/arduino/README.md#tcp-iri-gps-movimiento-continuo).
+Build RP2040 verificado con Arduino CLI 1.3.1, Arduino-Pico 5.4.3,
+Ethernet 2.0.2 y FQBN `rp2040:rp2040:adafruit_metro`.
+Los checks de operación física que siguen corresponden a validaciones anteriores:
+**no acreditan pruebas físicas del nuevo IRI**, todavía pendientes.
+
 ## Decisiones clave
 
 - Se mantiene checksum NMEA activo (no se deshabilita).
