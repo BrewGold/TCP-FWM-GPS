@@ -2,6 +2,22 @@
 
 Sistema GNSS para Dynatest FWD con receptor ArduSimple simpleRTK3B Budget (UM980) y controlador Adafruit Metro RP2040. La salida NMEA y el diagnóstico se ofrecen mediante servidores TCP en los puertos 15919 y 15920, respectivamente.
 
+## TCP-IRI-GPS: variante de movimiento continuo
+
+Este repositorio también incluye **TCP-IRI-GPS**, para el mismo Metro RP2040,
+GNSS UM980 y W5500. Es un proyecto seleccionable, no sustituye a TCP-FWM-GPS:
+
+- Sin magnetómetro/IMU, calibración ni offset antena-pistón.
+- Latitud, longitud y altitud instantáneas, sin promedio, smoothing ni bloqueo;
+  conserva la calidad de fix del GGA recibido.
+- Conserva COM2 D2, TCP NMEA 15919, diagnóstico 15920 y LEDs D5/D6.
+  LED1 indica GNSS/HAS sin exigir IMU; LED2 permanece apagado (MOVING).
+- Registra velocidad RMC en m/s en `status`, `[DIAG]` y monitor USB.
+
+Selección, compilación y pruebas de banco:
+[TCP-IRI-GPS en el README del firmware](firmware/arduino/README.md#tcp-iri-gps-movimiento-continuo).
+Las secciones de promedio, IMU y bloqueo que siguen describen **TCP-FWM-GPS**.
+
 ## Estado actual (2026-10-13)
 
 - Firmware y flujo principal: **operativos**.
@@ -58,6 +74,8 @@ Flujo principal:
 ## Estructura del repositorio
 
 - `firmware/arduino/RS232-RWM-GPS_V4-0.ino`: versión actual de firmware (Metro RP2040).
+- `firmware/arduino/TCP-IRI-GPS.ino`: proyecto de movimiento continuo, sin magnetómetro ni promedio.
+- `firmware/arduino/shared/TcpGpsFirmware.h`: implementación compartida de ambas aplicaciones.
 - `firmware/arduino/RS232-RWM-GPS_V3-0.ino`: revisión histórica Metro M4.
 - `firmware/arduino/RS232-RWM-GPS_V2-9.ino`: puente temporal UNO R4, sin IMU/I2C.
 - `firmware/arduino/RS232-RWM-GPS_V2-8.ino`: última base UNO R4, conservada.

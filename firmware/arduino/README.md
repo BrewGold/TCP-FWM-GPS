@@ -3,6 +3,67 @@
 Este directorio contiene el firmware del sistema GNSS FWD para Adafruit Metro RP2040
 y las revisiones históricas para Metro M4 y Arduino UNO R4 WiFi.
 
+## TCP-IRI-GPS: movimiento continuo
+
+`TCP-IRI-GPS.ino` selecciona la variante IRI con `TCP_IRI_GPS`. Ambos proyectos
+comparten `shared/TcpGpsFirmware.h`; Rev.4.0 sin ese símbolo conserva su lógica
+FWM. No cargar ambos sketches en la misma carpeta de Arduino.
+
+IRI usa la misma placa, cableado GNSS, COM2 PIO y W5500 de Rev.4.0:
+
+- No inicializa I2C, IMU ni EEPROM, no lee magnetómetro ni calcula yaw.
+  No requiere instalar SparkFun ICM-20948. `imu` responde `OFF`; los comandos
+  `magcal`/`yawoff` se rechazan sin modificar calibraciones.
+- Cada salida usa la última latitud/longitud/altitud GNSS válida, sin filtros,
+  promedios, offset ni posición bloqueada, incluso a velocidad cero.
+  El fix de salida es el fix de entrada (incluido 5 para HAS), sin remapeo.
+  Mantiene `$GPGGA`, checksum/CRLF, frecuencia 1–10 Hz, TCP 15919 y COM2 D2.
+- Velocidad directa desde RMC válido: nudos × 0.51444 = m/s, sin promedio.
+  Se registra en `status` (`Velocidad`), `[DIAG]` (`SPD`, cada 5 s por defecto)
+  y monitor USB junto a cada transmisión. `nan` significa dato no disponible:
+  antes del primer RMC, RMC inactivo/velocidad inválida, o más de 2 s sin RMC.
+  No se presenta la falta de velocidad como cero. GGA caducado detiene la salida.
+- Conserva la prueba de ambos LEDs al arrancar (5 s). LED1/D5: apagado sin
+  GNSS, parpadeo 600 ms con GNSS sin HAS, fijo con HAS. La ausencia intencional
+  de IMU no activa el aviso de fallo de 200 ms. LED2/D6 conserva el significado
+  de MOVING: apagado; no hay estados AVERAGING/LOCKED en IRI.
+- Banner USB, bienvenida TCP, `status` y `[DIAG]` identifican `TCP-IRI-GPS`.
+  El cliente DiagTelnetWin sigue siendo compatible y conserva la velocidad en
+  el registro/exportación de la respuesta Telnet.
+
+### Compilar y seleccionar IRI
+
+Instalar Arduino-Pico y Ethernet como para Rev.4.0. Desde la raíz del repositorio:
+
+```sh
+mkdir -p /tmp/TCP-IRI-GPS
+cp "$PWD/firmware/arduino/TCP-IRI-GPS.ino" /tmp/TCP-IRI-GPS/
+cp -R "$PWD/firmware/arduino/shared" /tmp/TCP-IRI-GPS/
+arduino-cli compile --fqbn rp2040:rp2040:adafruit_metro --warnings all /tmp/TCP-IRI-GPS
+```
+
+En Arduino IDE abrir `/tmp/TCP-IRI-GPS/TCP-IRI-GPS.ino` con `shared/` presente.
+Para volver a FWM compilar/cargar `RS232-RWM-GPS_V4-0.ino` con su copia de
+`shared/`, según las instrucciones de Rev.4.0.
+
+### Validación de IRI
+
+Compilación y pruebas de protocolo Telnet verificables sin placa; la prueba
+física sigue siendo necesaria:
+
+1. Sin IMU conectada, comprobar banner IRI y ausencia de reintentos I2C.
+2. Inyectar GGA sucesivos con coordenadas/altitud distintas y RMC a 0 m/s
+   durante más de 20 s: no debe entrar en promedio/bloqueo. Repetir en movimiento;
+   comprobar que COM2 y TCP emiten las últimas coordenadas, no una media.
+3. Probar fix 1/2/4/5 y verificar el mismo fix en `$GPGGA`, checksum y CRLF.
+4. Probar RMC a 10 nudos (`5.144 m/s`), otro a 20 (`10.289 m/s`), velocidad
+   cero, campo vacío, negativo, estado V y checksum incorrecto. No mezclar
+   velocidades; sin RMC durante más de 2 s debe indicar `nan`.
+5. Consultar `status`, activar `diag on` y comprobar velocidad e identidad en
+   TCP 15920 y USB; verificar `com2`, `freq`, `help`, `diag off`, `debug hex`.
+6. Verificar LEDs en arranque, sin GNSS, con fix 1 y con HAS; D6 siempre MOVING.
+7. Cargar FWM y verificar que conserva IMU, calibración, promedio y bloqueo.
+
 ## Versión actual
 
 - `RS232-RWM-GPS_V4-0.ino` — **Rev.4.0 TCP sin BLE, Metro RP2040**
@@ -102,7 +163,9 @@ Instalar **Raspberry Pi Pico/RP2040/RP2350 de Earle F. Philhower** y seleccionar
 **Adafruit Metro RP2040** (no el core Arduino Mbed, UNO R4 ni Metro M4).
 Instalar **Ethernet 2.0.2** y **SparkFun ICM-20948 Arduino Library 1.3.2**.
 `SerialPIO`, `EEPROM`, `Wire` y `SPI` están incluidos en el core.
-Abrir Rev.4 en una carpeta propia `RS232-RWM-GPS_V4-0`; no agrupar revisiones.
+Abrir Rev.4 en una carpeta propia `RS232-RWM-GPS_V4-0`, copiando también
+`shared/` dentro de esa carpeta; no agrupar revisiones. El sketch selecciona
+la aplicación FWM, cuya implementación reside en `shared/TcpGpsFirmware.h`.
 
 Desde la raíz del repositorio, con Arduino CLI y las bibliotecas instaladas:
 
@@ -110,6 +173,7 @@ Desde la raíz del repositorio, con Arduino CLI y las bibliotecas instaladas:
 arduino-cli core install rp2040:rp2040 --additional-urls https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
 mkdir -p /tmp/RS232-RWM-GPS_V4-0
 cp "$PWD/firmware/arduino/RS232-RWM-GPS_V4-0.ino" /tmp/RS232-RWM-GPS_V4-0/
+cp -R "$PWD/firmware/arduino/shared" /tmp/RS232-RWM-GPS_V4-0/
 arduino-cli compile --fqbn rp2040:rp2040:adafruit_metro --warnings all /tmp/RS232-RWM-GPS_V4-0
 ```
 
