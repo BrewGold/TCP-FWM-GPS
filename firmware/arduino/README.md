@@ -10,8 +10,9 @@ real de `setup`/`loop`, LEDs, COM2 PIO y W5500 en el sketch, y parser/estado GNS
 generación NMEA en su archivo local `Gnss.h`. Se puede copiar **solo esa carpeta**.
 No incluye `shared/`, otro `.ino` ni un selector `TCP_IRI_GPS`.
 Se eliminó el antiguo wrapper `firmware/arduino/TCP-IRI-GPS.ino` para evitar dos
-entradas distintas. FWM sigue usando `RS232-RWM-GPS_V4-0.ino` y
-`shared/TcpGpsFirmware.h`, sin cambios en sus fuentes.
+entradas distintas. FWM Rev.4.0 es el sketch **monolítico**
+`RS232-RWM-GPS_V4-0.ino` (no incluye `shared/TcpGpsFirmware.h`).
+Ambos archivos históricos permanecen intactos; Rev.4.1 tiene carpeta propia.
 
 IRI usa la misma placa, cableado GNSS, COM2 PIO y W5500 de Rev.4.0:
 
@@ -74,8 +75,8 @@ Conserva recuperación Ethernet cooperativa y vaciado incremental del FIFO PIO.
 No cambia talker, precisión decimal ni formato heredado de salida.
 
 En Arduino IDE abrir la carpeta autónoma IRI con `Gnss.h` presente.
-Para volver a FWM compilar/cargar `RS232-RWM-GPS_V4-0.ino` con su copia de
-`shared/`, según las instrucciones de Rev.4.0.
+Para volver a FWM compilar/cargar la carpeta independiente de Rev.4.1,
+o el sketch histórico monolítico según las instrucciones de Rev.4.0.
 
 ### Validación de IRI
 
@@ -155,7 +156,166 @@ DHCP, temporización real ni carga USB en esta sesión):
 
 ## Versión actual
 
-- `RS232-RWM-GPS_V4-0.ino` — **Rev.4.0 TCP sin BLE, Metro RP2040**
+- `RS232-RWM-GPS_V4-1/RS232-RWM-GPS_V4-1.ino` — **Rev.4.1 FWM, Metro RP2040**
+
+### Rev.4.1: transporte TCP cooperativo
+
+Abrir **solo** `RS232-RWM-GPS_V4-1/RS232-RWM-GPS_V4-1.ino` con
+`TcpTransport.h` y `W5500Transport.h` en esa misma carpeta. No requiere
+`shared/`, IRI ni otros sketches. Rev.4.0, IRI y la implementación histórica
+`shared/` no se han modificado.
+
+Conserva literalmente las funciones GNSS, IMU/calibración, movimiento, promedio,
+offset y COM2 de Rev.4.0, incluido su mapeo de fix (HAS en movimiento → 2,
+otros fixes válidos en movimiento → 1, LOCKED → 4). No añade un filtro F4 ni
+descarta la primera posición. La salida efectiva sigue siendo **`$GPGGA`**,
+checksum y CRLF, 10 Hz por defecto (`freq 1..10`), sin cambiar cableado, IP ni
+puertos. Las referencias históricas a GCGGA son nombres internos heredados.
+
+#### Política de transporte y límites
+
+- `availableForWrite()` no garantiza una escritura no bloqueante en Ethernet
+  2.0.2: `socketSend()` espera `SEND_OK` sin plazo. Rev.4.1 no usa ese camino.
+  Accede a registros **públicos** de `utility/w5100.h` mediante SPI genérica,
+  sin hacks de acceso privado ni dependencias nuevas.
+- También sustituye escucha, aceptación, recepción de comandos y cierre:
+  las funciones de sockets de Ethernet 2.0.2 esperan `SnCR` internamente.
+  `EthernetClient` es solo un identificador (`getSocketNumber()`), con timeout
+  configurado **después** de reconstruirlo. No mezclar este transporte con
+  `EthernetClient.write/availableForWrite/flush/read/stop` ni `EthernetServer`;
+  las cachés privadas RX/TX de Ethernet no reflejarían estos accesos.
+- Exclusivo **W5500, ocho sockets, 2 KiB TX y 2 KiB RX por socket**:
+  cuatro NMEA, uno diagnóstico, dos listeners y uno de margen. Otros chips
+  o configuraciones de buffer se rechazan explícitamente.
+- Cada cliente conserva una trama activa inmutable (máximo 240 bytes) y una
+  pendiente completa reemplazable por la última muestra. Nunca se mezcla un
+  sufijo activo con otra trama. Se copia toda la activa al TX cuando cabe;
+  se mantiene hasta `SEND_OK`. No se inician tramas NMEA más rápido que la
+  cadencia configurada, tampoco después de una pausa; no hay catch-up.
+- Muestras NMEA aún no iniciadas caducan a **500 ms**. Un SEND sin respuesta
+  o falta persistente de espacio/lecturas estables cierra ese cliente a
+  **3 s**; un comando sin liberarse cierra a **100 ms**. Los plazos usan
+  restas sin signo compatibles con rollover de `millis()`. Son políticas
+  de descarte/desconexión, no garantías de latencia de Windows/FWM.
+- `TIMEOUT`, desconexión y resultado ambiguo descartan la conexión, **sin
+  reintento de esa trama**. Cierre forzado cooperativo (no espera FIN);
+  si tampoco responde en 100 ms el socket queda en cuarentena, sin
+  reciclarlo hasta un reset explícito del chip (recuperación de enlace/
+  reinicialización o reinicio de placa). La cuarentena reduce capacidad;
+  varios sockets averiados pueden dejar un puerto sin escucha.
+- Cada operación usa una transacción SPI corta y la termina antes de
+  devolver control. Dos lecturas de FSR/RSR por intento: si difieren, se
+  pospone, no se gira esperando estabilidad. TX/RX dividen el acceso en
+  el borde circular exacto del socket, incluido rollover de punteros de 16 bits.
+  `yield()` sigue atendiendo solo GNSS/PIO y producción COM2 en recuperación,
+  nunca SPI/Ethernet.
+- Diagnóstico usa la misma máquina asíncrona, con chunks de **128 bytes**
+  copiados a almacenamiento propio antes de consumir el ring de **4096 bytes**.
+  No descarta/reemplaza chunks en vuelo. Desbordar el ring cierra **solo**
+  diagnóstico. Se procesan como máximo **64 bytes** de comandos y una
+  adopción/rechazo por vuelta; los comandos truncados siguen sin ejecutarse.
+- `status` conserva delimitadores/claves del cliente y añade versión, cola/
+  máximo/desbordamientos, duración máxima del servicio (µs) y, por socket,
+  generación, puerto, fase, bytes encolados, `SEND_OK`, coalescidos,
+  caducados, errores y stalls. Fases: 0 libre, 1 OPEN, 2 LISTEN pendiente,
+  3 escucha, 4 peer, 5 cerrando, 6 cuarentena. Contadores acumulados por
+  socket físico desde el arranque, no confirmaciones de recepción FWM.
+
+El W5500 solo controla sus buffers locales, no los buffers remotos: `SEND_OK`
+no demuestra que TCP Cliente haya procesado una posición. Datos que ya
+salieron al PC no pueden retirarse, aunque hayan envejecido. No puede evitar
+un bloqueo interno del cliente, una ventana remota cerrada ni fallos de
+hardware. GNSS/IMU, USB y DHCP inicial conservan sus propias restricciones:
+no es un firmware de tiempo real duro ni una promesa de arreglo en FWM.
+
+La recuperación de enlace invalida handles, comandos, captura y colas; después
+reinicia explícitamente el W5500 y restaura la última IP sin DHCP en runtime.
+Cada generación se asigna únicamente tras cierre confirmado o reset global.
+La escucha se crea por pasos en el loop; el banner de arranque indica
+«escucha cooperativa pendiente», no un falso LISTEN inmediato.
+
+#### Compilación Rev.4.1
+
+Versiones usadas en la compilación real: **Arduino CLI 1.3.1**, core
+**Arduino-Pico 5.4.3**, **Ethernet 2.0.2** (commit
+`d5672b707a85874bf69a312b8dce11df710a14d3`) y **SparkFun 9DoF IMU Breakout -
+ICM 20948 - Arduino Library 1.3.2**. SerialPIO, EEPROM, Wire y SPI pertenecen
+al core. No usar Arduino Mbed, `ETHERNET_LARGE_BUFFERS` ni reducir sockets.
+Revisar/volver a validar el adaptador al cambiar Ethernet: usa API de bajo
+nivel pública pero no estable entre versiones.
+
+```sh
+REPO=/home/runner/work/TCP-FWM-GPS/TCP-FWM-GPS # ajustar ruta absoluta
+INDEX=https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
+arduino-cli core update-index --additional-urls "$INDEX"
+arduino-cli core install rp2040:rp2040@5.4.3 --additional-urls "$INDEX"
+arduino-cli lib install "Ethernet@2.0.2"
+arduino-cli lib install "SparkFun 9DoF IMU Breakout - ICM 20948 - Arduino Library@1.3.2"
+arduino-cli board details --fqbn rp2040:rp2040:adafruit_metro
+arduino-cli compile --fqbn rp2040:rp2040:adafruit_metro --warnings all \
+  "$REPO/firmware/arduino/RS232-RWM-GPS_V4-1"
+arduino-cli upload --fqbn rp2040:rp2040:adafruit_metro --port /dev/ttyACM0 \
+  "$REPO/firmware/arduino/RS232-RWM-GPS_V4-1"
+```
+
+Verificado el 2026-10-24: **131380 bytes de programa, 36292 bytes globales**,
+compilación sin warnings de código. En este entorno se restauraron herramientas
+ausentes para la compilación: CLI de su release GitHub, core con `core install`,
+Ethernet y SparkFun desde los ZIP oficiales de tags `2.0.2` y `v1.3.2`
+(`lib install --zip-path` con instalación local habilitada), y ctags
+`5.8-arduino11` desde su release GitHub, indicado mediante
+`--build-property runtime.tools.ctags.path=<ruta-absoluta-ctags>`.
+Los índices generales/discovery de `downloads.arduino.cc` fallaron por DNS,
+pero el índice del core y los archivos GitHub funcionaron y el build terminó
+con código 0. No se han cargado binarios en una placa.
+
+#### Pruebas host y banco Rev.4.1
+
+```sh
+REPO=/home/runner/work/TCP-FWM-GPS/TCP-FWM-GPS # ajustar ruta absoluta
+OUT=/tmp/tcp-fwm-rev41-tests
+mkdir -p "$OUT"
+g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+  -fno-omit-frame-pointer -DARDUINO_ADAFRUIT_METRO_RP2040 -DARDUINO_ARCH_RP2040 \
+  -I"$REPO/firmware/tests/rev41-stubs" -I"$REPO/firmware/tests/stubs" \
+  "$REPO/firmware/tests/TcpFwmRev41Test.cpp" -o "$OUT/TcpFwmRev41Test"
+"$OUT/TcpFwmRev41Test"
+g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+  -fno-omit-frame-pointer -DARDUINO_ADAFRUIT_METRO_RP2040 -DARDUINO_ARCH_RP2040 \
+  -I"$REPO/firmware/tests/stubs" "$REPO/firmware/tests/TcpIriGpsTest.cpp" \
+  -o "$OUT/TcpIriGpsTest"
+"$OUT/TcpIriGpsTest"
+```
+
+Ambas suites superadas. El test Rev.4.1 incluye el **sketch y adaptador reales**
+con W5500/SPI/IMU/EEPROM simulados, sin framework adicional. Comprueba cuatro
+clientes y diagnóstico, SEND_OK bloqueado, independencia de GNSS/COM2 en `loop`,
+cadencia sin ráfagas, coalescencia completa y CRLF, frescura, TIMEOUT, comandos/
+cierre atascados, rollover de millis y de anillos TX/RX, límites de comandos/
+colas, desbordamiento aislado, cuotas, desconexión, generaciones y recuperación.
+Los dobles Ethernet no ofrecen `write/stop/availableForWrite` ni API de servidor:
+una vuelta accidental al camino bloqueante hace fallar el build host.
+No son una simulación del stack TCP de Windows ni de los tiempos físicos W5500.
+
+**Banco pendiente**, sin garantías sobre TCP Cliente/FWM:
+
+1. Inyectar GNSS a 10 Hz; capturar simultáneamente COM2 D2 a 38400/8N1 y
+   TCP 15919. Comparar checksum/CRLF, coordenadas, cadencia y fix histórico;
+   comprobar la primera posición al iniciar F4, HAS, promedio y offset con IMU.
+2. Conectar cuatro lectores NMEA y diagnóstico. Pausar un lector (ventana TCP
+   cero; llenar su buffer remoto puede tardar) o descartar sus ACK por conexión;
+   comprobar que los otros tres, `status`, GNSS y COM2 siguen progresando.
+   Observar `SEND_OK`, caducados/coalescidos y cierre alrededor del plazo
+   software una vez realmente bloqueado el SEND, no desde que se pausa la UI.
+3. Repetir bloqueando solo diagnóstico; inundar comandos y ejecutar `help`,
+   `status`, `debug hex on/off`. Verificar desbordamiento/cierre aislado,
+   comandos largos rechazados y ausencia de fragmentos mezclados.
+4. Repetir a `freq 1` y `freq 10`, reconectar varias veces, exceder cuotas,
+   desconectar/reconectar cable y arrancar sin cable/DHCP; comprobar listeners,
+   IP de respaldo, colas vacías en reconexión y no ráfagas de muestras antiguas.
+5. Ejecutar Windows/TCP Cliente/FWM y registrar versiones, captura de red,
+   `status`, pausas máximas de COM2/loop y aceptación de posiciones durante
+   una sesión prolongada. Un éxito host/build no sustituye esta validación.
 
 ### Rev.4.0: Metro RP2040, shield sin cambios
 
@@ -252,9 +412,8 @@ Instalar **Raspberry Pi Pico/RP2040/RP2350 de Earle F. Philhower** y seleccionar
 **Adafruit Metro RP2040** (no el core Arduino Mbed, UNO R4 ni Metro M4).
 Instalar **Ethernet 2.0.2** y **SparkFun ICM-20948 Arduino Library 1.3.2**.
 `SerialPIO`, `EEPROM`, `Wire` y `SPI` están incluidos en el core.
-Abrir Rev.4 en una carpeta propia `RS232-RWM-GPS_V4-0`, copiando también
-`shared/` dentro de esa carpeta; no agrupar revisiones. El sketch selecciona
-la aplicación FWM, cuya implementación reside en `shared/TcpGpsFirmware.h`.
+Abrir Rev.4.0 en una carpeta propia `RS232-RWM-GPS_V4-0`; no agrupar revisiones.
+El sketch histórico es monolítico: **no necesita `shared/`**.
 
 Desde la raíz del repositorio, con Arduino CLI y las bibliotecas instaladas:
 
@@ -262,7 +421,6 @@ Desde la raíz del repositorio, con Arduino CLI y las bibliotecas instaladas:
 arduino-cli core install rp2040:rp2040 --additional-urls https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
 mkdir -p /tmp/RS232-RWM-GPS_V4-0
 cp "$PWD/firmware/arduino/RS232-RWM-GPS_V4-0.ino" /tmp/RS232-RWM-GPS_V4-0/
-cp -R "$PWD/firmware/arduino/shared" /tmp/RS232-RWM-GPS_V4-0/
 arduino-cli compile --fqbn rp2040:rp2040:adafruit_metro --warnings all /tmp/RS232-RWM-GPS_V4-0
 ```
 
