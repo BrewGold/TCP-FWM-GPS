@@ -75,7 +75,8 @@ Flujo principal:
 
 ## Estructura del repositorio
 
-- `firmware/arduino/RS232-RWM-GPS_V4-0.ino`: versión actual de firmware (Metro RP2040).
+- `firmware/arduino/RS232-RWM-GPS_V4-1/`: revisión actual FWM (Metro RP2040), sketch y transporte locales.
+- `firmware/arduino/RS232-RWM-GPS_V4-0.ino`: revisión monolítica conservada sin cambios.
 - `firmware/arduino/TCP-IRI-GPS/TCP-IRI-GPS.ino`: aplicación independiente de movimiento continuo.
 - `firmware/arduino/TCP-IRI-GPS/Gnss.h`: GNSS directo y protocolo NMEA locales, sin magnetómetro ni promedio.
 - `firmware/arduino/shared/TcpGpsFirmware.h`: implementación conservada de FWM; IRI ya no depende de ella.
@@ -94,7 +95,27 @@ Flujo principal:
 
 ## Versiones
 
-### Rev.4.0 (Actual): Metro RP2040, FWD en D2
+### Rev.4.1 (actual): aislamiento cooperativo de clientes TCP
+
+- Sketch autónomo: **`firmware/arduino/RS232-RWM-GPS_V4-1/RS232-RWM-GPS_V4-1.ino`**.
+  Copiar/abrir esa carpeta completa con sus dos headers locales.
+- Transporte W5500 cooperativo: TX, RX, escucha y cierre sin esperas de
+  `SEND_OK`/`SnCR` ni llamadas a `EthernetClient.write/stop`. Cuatro clientes
+  NMEA y uno de diagnóstico, con memoria y trabajo por vuelta acotados.
+- Una trama activa inmutable y una pendiente completa (última muestra);
+  frescura NMEA 500 ms, bloqueo 3 s y comando W5500 100 ms. Sin ráfagas de
+  recuperación ni reenvíos ambiguos en una misma conexión.
+- **Rev.4.0, IRI y `shared/` intactos**. Conserva GNSS, IMU, promedio/bloqueo,
+  COM2, fix de salida histórico y `$GPGGA` con checksum/CRLF. No descarta la
+  primera posición al iniciar F4 en FWM. No requiere cambios en DiagTelnetWin.
+- Build real Metro RP2040 y pruebas host con sanitizers superados;
+  **banco W5500/Windows/FWM pendiente**. No puede impedir bloqueos internos
+  del cliente ni retirar datos ya recibidos por Windows.
+
+Dependencias fijadas, compilación, pruebas y límites:
+[Rev.4.1 en el README del firmware](firmware/arduino/README.md#rev41-transporte-tcp-cooperativo).
+
+### Rev.4.0 (conservada): Metro RP2040, FWD en D2
 
 - Conserva el shield: FWD D2, GNSS Serial1 D0/D1, LEDs D5/D6, IMU SDA/SCL,
   W5500 SPI ICSP con CS D10 y SD CS D4 en HIGH.

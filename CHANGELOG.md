@@ -7,6 +7,18 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+- Rev.4.1 FWM como carpeta Arduino independiente, conservando exactamente
+  Rev.4.0, TCP-IRI-GPS y `shared/`. GNSS/IMU/movimiento/COM2 sin cambios.
+- Transporte W5500 por registros públicos de Ethernet 2.0.2: SEND, escucha,
+  recepción y cierre cooperativos; sin esperas infinitas de SEND_OK/SnCR.
+- Cuatro clientes NMEA y diagnóstico aislados; activa inmutable y pendiente
+  completa más reciente, frescura 500 ms, bloqueo 3 s, comando/cierre 100 ms,
+  cuarentena por socket y generaciones para impedir reutilización insegura.
+- Diagnóstico asíncrono de 128 bytes, ring 4096 bytes y cierre aislado por
+  overflow; estadísticas de cola, coalescencia, caducidad, errores y servicio.
+- Pruebas del sketch/adaptador real con W5500/SPI simulado y sanitizers,
+  regresión host IRI y build real Metro RP2040 superados. Banco Windows/FWM
+  pendiente; no se promete impedir fallos internos del cliente.
 - TCP-IRI-GPS como carpeta Arduino autónoma con implementación y parser locales;
   eliminado el antiguo wrapper, sin cambios al firmware FWM.
 - GNSS directo sin IMU, calibración, offset ni estados de promedio/bloqueo.
