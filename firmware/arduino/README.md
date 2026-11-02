@@ -297,7 +297,25 @@ Los dobles Ethernet no ofrecen `write/stop/availableForWrite` ni API de servidor
 una vuelta accidental al camino bloqueante hace fallar el build host.
 No son una simulación del stack TCP de Windows ni de los tiempos físicos W5500.
 
-**Banco pendiente**, sin garantías sobre TCP Cliente/FWM:
+**Integración Windows/DDC observada el 2026-11-01:**
+
+- DDC recibió el GPS externo por TCP **15919**; sus coordenadas coincidieron
+  con la sentencia GGA capturada y con checksum válido. Se observó una salida
+  aproximada de **10 Hz** (71 bytes por muestra, ~100 ms).
+- Con DDC conectado a 15919 y Telnet conectado al diagnóstico **15920**, los
+  mensajes de diagnóstico llegaron aproximadamente cada 5 s. En la captura
+  filtrada no se observaron ventanas cero.
+- Se observó una retransmisión TCP rápida aislada en el frame 45689
+  (~1917,7 s). Tras tres ACK duplicados, el emisor retransmitió los datos; el
+  receptor confirmó el avance y el flujo continuó con su cadencia habitual.
+  La captura no permite determinar si el segmento original se perdió o no fue
+  capturado por Wireshark.
+- No se reportaron cuelgues ni pérdida persistente de GPS durante los
+  escenarios observados. **Resultado funcional: pruebas ejecutadas superadas;
+  se conserva Rev.4.1 y no se justifica Rev.4.1.1 por ahora.**
+
+Este resultado no equivale a certificar todos los escenarios de estrés ni una
+ejecución indefinida. Siguen pendientes las pruebas de banco ampliadas:
 
 1. Inyectar GNSS a 10 Hz; capturar simultáneamente COM2 D2 a 38400/8N1 y
    TCP 15919. Comparar checksum/CRLF, coordenadas, cadencia y fix histórico;
@@ -313,9 +331,9 @@ No son una simulación del stack TCP de Windows ni de los tiempos físicos W5500
 4. Repetir a `freq 1` y `freq 10`, reconectar varias veces, exceder cuotas,
    desconectar/reconectar cable y arrancar sin cable/DHCP; comprobar listeners,
    IP de respaldo, colas vacías en reconexión y no ráfagas de muestras antiguas.
-5. Ejecutar Windows/TCP Cliente/FWM y registrar versiones, captura de red,
-   `status`, pausas máximas de COM2/loop y aceptación de posiciones durante
-   una sesión prolongada. Un éxito host/build no sustituye esta validación.
+5. Completar una sesión prolongada y registrar versiones, captura de red,
+   `status`, pausas máximas de COM2/loop y aceptación de posiciones. Un éxito
+   host/build o una captura puntual no sustituye esta validación.
 
 ### Rev.4.0: Metro RP2040, shield sin cambios
 

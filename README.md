@@ -20,12 +20,20 @@ Selección, compilación y pruebas de banco:
 [TCP-IRI-GPS en el README del firmware](firmware/arduino/README.md#tcp-iri-gps-movimiento-continuo).
 Las secciones de promedio, IMU y bloqueo que siguen describen **TCP-FWM-GPS**.
 
-## Estado actual (2026-10-13)
+## Estado actual (2026-11-02)
 
-- Firmware y flujo principal: **operativos**.
+- Firmware Rev.4.1 y flujo principal: **operativos**.
 - Salida NMEA esperada para integración: **GPGGA** en Telnet/COM2.
-- Comunicación GNSS estable (sin cambios pendientes de código en esta fase).
+- Prueba de integración Windows/DDC en 15919 y diagnóstico Telnet en 15920:
+  **superada en los escenarios ejecutados**. DDC recibió y actualizó el GPS
+  externo; no se observaron cuelgues ni ventanas cero. Se registró una
+  retransmisión TCP rápida aislada que se recuperó y tras la cual continuó el
+  flujo normal. No se requieren cambios para una Rev.4.1.1 con la evidencia
+  actual.
 - Pendiente de validación en receptor: **Galileo HAS (E6-HAS)**.
+
+Detalle y alcance de la prueba:
+[registro de validación DDC del 2026-11-01](logs/2026-11-01-ddc-validation.md).
 
 ## Flujo de puertos (resumen)
 

@@ -7,6 +7,13 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+### Validación
+
+- Documentada la prueba de integración Windows/DDC con Rev.4.1: DDC recibió
+  GPS externo por TCP 15919 mientras Telnet recibía diagnóstico por 15920.
+  Los escenarios ejecutados se superaron; una retransmisión TCP rápida
+  aislada se recuperó sin cierre de conexión ni cuelgue observado.
+
 - Rev.4.1 FWM como carpeta Arduino independiente, conservando exactamente
   Rev.4.0, TCP-IRI-GPS y `shared/`. GNSS/IMU/movimiento/COM2 sin cambios.
 - Transporte W5500 por registros públicos de Ethernet 2.0.2: SEND, escucha,
