@@ -20,12 +20,13 @@ Selección, compilación y pruebas de banco:
 [TCP-IRI-GPS en el README del firmware](firmware/arduino/README.md#tcp-iri-gps-movimiento-continuo).
 Las secciones de promedio, IMU y bloqueo que siguen describen **TCP-FWM-GPS**.
 
-## Estado actual (2026-10-13)
+## Estado actual (2026-11-17)
 
-- Firmware y flujo principal: **operativos**.
+- TCP-FWM-GPS: **todas las pruebas realizadas satisfactorias**.
+- GNSS, salida COM2 y NMEA por TCP verificados con fix autónomo (fix 1).
+- Pendiente: continuar el trabajo y las pruebas de **TCP-IRI-GPS**.
+- La convergencia PPP/Galileo HAS requiere validación independiente en campo.
 - Salida NMEA esperada para integración: **GPGGA** en Telnet/COM2.
-- Comunicación GNSS estable (sin cambios pendientes de código en esta fase).
-- Pendiente de validación en receptor: **Galileo HAS (E6-HAS)**.
 
 ## Flujo de puertos (resumen)
 
