@@ -1,5 +1,10 @@
 # Especificación funcional
 
+> **Especificación heredada Rev.2.5.** Describe la arquitectura UNO R4/BLE y no
+> es la especificación vigente para Metro RP2040 Rev.4.1 ni TCP-IRI-GPS.
+> Consulta [Arquitectura del sistema](system-architecture.md) y el
+> [índice de documentación](README.md).
+
 > **Rev.2.5** — actualizado 2026-10-02. La v1.0 original (ESP32-S3 + NTRIP) se conserva al final como apéndice histórico.
 
 ## Sistema GNSS para Dynatest FWD con simpleRTK3B Budget (UM980)

@@ -7,6 +7,9 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+- Organización de la documentación con un índice para materiales, software,
+  configuración y manuales; separadas las instrucciones vigentes de las guías
+  históricas Rev.2.x. Añadida guía canónica de configuración UM980.
 - Pruebas de TCP-FWM-GPS completadas satisfactoriamente; validada la recepción
   GNSS con fix 1 y la salida por COM2 y NMEA TCP. Queda pendiente continuar
   el trabajo y las pruebas de TCP-IRI-GPS. Galileo HAS fue probado y converge

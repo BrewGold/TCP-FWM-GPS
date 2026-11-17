@@ -1,62 +1,60 @@
-# Programación y validación técnica
+# Desarrollo y validación
 
-## Alcance de esta fase
+Este documento resume el estado técnico actual y enlaza a las instrucciones
+reproducibles. La documentación está organizada en el
+[índice de docs](README.md).
 
-Este documento recoge decisiones y validaciones de la fase de estabilización de entrada GNSS y salida NMEA.
+## Estado de validación (2026-11-17)
 
-## TCP-IRI-GPS autónomo
+- **TCP-FWM-GPS Rev.4.1:** todas las pruebas realizadas fueron satisfactorias.
+  La recepción GNSS con fix 1, salida COM2 y NMEA por TCP fueron verificadas.
+- **Galileo HAS:** probado con la configuración UM980 vigente y converge
+  correctamente.
+- **TCP-IRI-GPS:** el firmware y las pruebas host están documentados; el trabajo
+  y la validación física siguen pendientes.
 
-La nueva aplicación está en `firmware/arduino/TCP-IRI-GPS/TCP-IRI-GPS.ino`
-con su parser local `Gnss.h`; ya no utiliza el wrapper superior ni el header
-compartido de FWM. Mantiene GNSS/HAS, LEDs D5/D6 (D6 apagado en modo directo),
-COM2 D2 y W5500 TCP 15919/15920; no usa IMU, EEPROM, yaw, promedio ni bloqueo.
-Velocidad RMC directa en m/s en diagnóstico, `N/A` cuando no está disponible.
+## Aplicaciones
 
-Versiones, comandos reproducibles de compilación/carga, pruebas host ejecutadas
-y límites de red se detallan en
-[README del firmware](../firmware/arduino/README.md#tcp-iri-gps-movimiento-continuo).
-Build RP2040 verificado con Arduino CLI 1.3.1, Arduino-Pico 5.4.3,
-Ethernet 2.0.2 y FQBN `rp2040:rp2040:adafruit_metro`.
-Los checks de operación física que siguen corresponden a validaciones anteriores:
-**no acreditan pruebas físicas del nuevo IRI**, todavía pendientes.
+FWM e IRI son aplicaciones independientes. Selección de sketch, dependencias,
+compilación/carga y comandos de pruebas están en el
+[README del firmware Arduino](../firmware/arduino/README.md).
 
-## Decisiones clave
+| Aplicación | Ruta | Alcance |
+|---|---|---|
+| TCP-FWM-GPS Rev.4.1 | `firmware/arduino/RS232-RWM-GPS_V4-1/` | FWM con IMU, offset, promedio/bloqueo y transporte TCP cooperativo |
+| TCP-IRI-GPS | `firmware/arduino/TCP-IRI-GPS/` | GNSS directo de movimiento continuo, sin IMU ni promedio/bloqueo |
 
-- Se mantiene checksum NMEA activo (no se deshabilita).
-- Se prioriza robustez de parser frente a líneas truncadas/fragmentadas.
-- Requisito de integración: salida de sentencia en **GPGGA** para Telnet/COM2.
+No utilizar las notas de pruebas históricas Rev.2.x como evidencia de
+validación física de IRI o como instrucción de carga para Rev.4.1.
 
-## Reglas de parser recomendadas
+## Reglas de integración GNSS
 
-1. Aceptar solo líneas:
-   - no vacías,
-   - que comiencen con `$`,
-   - con longitud mínima razonable,
-   - con `*HH` final (dos hexadecimales).
-2. Descartar silenciosamente líneas malformadas.
-3. Mantener validación checksum en GGA/RMC.
-4. Limitar logs de error de checksum (rate-limit) para evitar flooding.
+- El Metro recibe UART a 115200 baudios, 8N1, por `Serial1` (D0 RX/D1 TX).
+- Confirmar switch RX/TX, TX del UM980 a RX del Metro y GND común.
+- Fix 1 es válido para generar salida; no esperar fix 2 para probar COM2/TCP.
+- La salida NMEA actual es `$GPGGA`, checksum y CRLF.
+- El TCP NMEA requiere un cliente conectado al puerto 15919; el diagnóstico
+  está en el puerto 15920.
+- Mantener la validación del checksum. No desactivar validación para ocultar
+  un problema de cableado o de configuración del receptor.
 
-## Checklist de pruebas
+## Configuración del receptor
 
-- [x] Recepción GNSS continua sin corrupción visible en captura limpia.
-- [x] Salida de trama en formato esperado por consumidor.
-- [x] Confirmación de operación de LEDs.
-- [x] Estado general funcional por parte de programación.
-- [ ] Activación y convergencia HAS validada en UM980.
+Usar la [guía vigente del UM980](CONFIGURACION_UM980.md), que cubre FRESET,
+salida GGA/RMC en COM1 y COM3, grupo de señales Galileo E6 y PPP E6-HAS.
+Las instrucciones de configuración contenidas en documentos Rev.2.x son
+históricas y no sustituyen esa guía.
 
-## Comandos útiles UM980 (referencia operativa)
+## Regresión y pruebas
 
-```text
-CONFIG SIGNALGROUP 2
-CONFIG PPP ENABLE E6-HAS
-SAVECONFIG
-VERSIONA
-```
+Ejecutar los comandos y pruebas documentados en el README del firmware para la
+aplicación que se modifica. Los cambios de transporte deben conservar la
+integridad de las tramas NMEA y el aislamiento de clientes TCP. No marcar como
+prueba física un resultado de compilación o de pruebas host.
 
-## Criterio de cierre técnico
+## Documentación histórica
 
-La parte de firmware se considera cerrada cuando:
-- Se mantiene estabilidad de entrada/salida NMEA en operación continua.
-- La integración remota consume correctamente GPGGA por COM2/TCP.
-- Solo queda seguimiento de estado HAS dependiente de receptor/firmware/entorno GNSS.
+- [Changelog V2-5](CHANGELOG_V2-5.md): notas de una revisión anterior.
+- [Especificación funcional Rev.2.5](functional-spec-v1.0.md): requisitos
+  heredados de UNO R4/BLE.
+- [Guía BLE](ble-app-guide.md): solo para firmware BLE antiguo.

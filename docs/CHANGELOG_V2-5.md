@@ -1,5 +1,10 @@
 # Changelog V2-5 — RS232-GPS
 
+> **Documento histórico.** Describe el estado y las recomendaciones de V2-5,
+> no el firmware actual. Algunos riesgos y acciones listados aquí ya se
+> resolvieron en revisiones posteriores. Consulta el [changelog vigente](../CHANGELOG.md)
+> y el [índice de documentación](README.md) para el estado actual.
+
 Fecha: 2026-10-14  
 Repositorio: `BrewGold/TCP-FWM-GPS`
 

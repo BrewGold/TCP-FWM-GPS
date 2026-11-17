@@ -1,5 +1,10 @@
 # Guía BLE para MIT App Inventor
 
+> **Guía histórica, solo para firmware Rev.2.x con BLE.** La Rev.4.1 usa
+> diagnóstico TCP en el puerto 15920 y no ejecuta BLE. Consulta el
+> [README del firmware](../firmware/arduino/README.md) y el
+> [índice de documentación](README.md).
+
 > Aplica a firmware **Rev.2.5** (`RS232-RWM-GPS_V2-5.ino`). Guía para construir una app Android de diagnóstico con MIT App Inventor que se comunica con el equipo por Bluetooth Low Energy.
 
 ## 1. Requisitos

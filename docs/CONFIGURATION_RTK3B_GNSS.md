@@ -1,6 +1,12 @@
 # Configuración GNSS - ArduSimple RTK3B Budget
 ## Rev.2.7 FWD-GPS
 
+> **Referencia histórica Rev.2.7; no es la configuración vigente de Rev.4.1.**
+> Contiene parámetros y estados antiguos (incluidos BLE, declinación y reglas
+> de LOCKED). Para configurar el UM980 desde cero y activar Galileo HAS, usa
+> [Configuración del UM980](CONFIGURACION_UM980.md). Para el estado actual,
+> consulta el [README principal](../README.md).
+
 ---
 
 ## 📍 PARÁMETROS GNSS FINALES

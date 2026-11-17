@@ -1,6 +1,13 @@
 MANUAL OPERATIVO
 simpleRTK3B Budget + UM980 + Arduino UNO R4 WiFi + FWD GGA + Ethernet + WiFi TCP + Galileo HAS
 
+> **Manual histórico Rev.2.2 (2026-09-28).** Está escrito para Arduino UNO R4
+> WiFi/BNO085 y contiene procedimientos y cableado que no corresponden al
+> hardware actual Metro RP2040/Rev.4.1. No usarlo para configurar o cablear la
+> instalación vigente. Consulta la [arquitectura actual](system-architecture.md),
+> la [guía del UM980](CONFIGURACION_UM980.md) y el
+> [índice de documentación](README.md).
+
 Versión: 2.2
 Fecha: 28/09/2026
 Preparado para: operación técnica, pruebas de campo y validación

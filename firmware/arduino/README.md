@@ -3,6 +3,10 @@
 Este directorio contiene el firmware del sistema GNSS FWD para Adafruit Metro RP2040
 y las revisiones históricas para Metro M4 y Arduino UNO R4 WiFi.
 
+Para arquitectura, materiales y manuales, consulta el
+[índice de documentación](../../docs/README.md). La guía vigente del receptor
+está en [Configuración del UM980](../../docs/CONFIGURACION_UM980.md).
+
 ## TCP-IRI-GPS: movimiento continuo
 
 Abrir **`TCP-IRI-GPS/TCP-IRI-GPS.ino`**: carpeta Arduino autónoma con implementación

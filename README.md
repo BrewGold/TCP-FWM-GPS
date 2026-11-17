@@ -2,6 +2,14 @@
 
 Sistema GNSS para Dynatest FWD con receptor ArduSimple simpleRTK3B Budget (UM980) y controlador Adafruit Metro RP2040. La salida NMEA y el diagnóstico se ofrecen mediante servidores TCP en los puertos 15919 y 15920, respectivamente.
 
+## Documentación
+
+- [Índice de documentación, materiales y manuales](docs/README.md)
+- [Arquitectura actual](docs/system-architecture.md)
+- [Configuración del UM980 y Galileo HAS](docs/CONFIGURACION_UM980.md)
+- [Desarrollo y validación](docs/PROGRAMACION.md)
+- [Firmware: selección, compilación y pruebas](firmware/arduino/README.md)
+
 ## TCP-IRI-GPS: variante de movimiento continuo
 
 Este repositorio también incluye **TCP-IRI-GPS**, para el mismo Metro RP2040,
@@ -49,7 +57,7 @@ Proporcionar al Dynatest FWD una posición GNSS mejorada mediante:
 - **GNSS**: ArduSimple simpleRTK3B Budget (UM980) → Serial1 (D0/D1) @ 115200 bps
 - **MCU**: Adafruit Metro RP2040
 - **IMU**: SparkFun ICM-20948 → I2C (0x69/0x68)
-- **Salida FWD (COM2)**: UART PIO TX-only en **D2** @ 38400 bps, 8N1 ($GCGGA a 10 Hz)
+- **Salida FWD (COM2)**: UART PIO TX-only en **D2** @ 38400 bps, 8N1 (`$GPGGA` a 10 Hz)
 - **Ethernet**: Shield W5500 → servidores TCP NMEA (15919) y diagnóstico (15920)
   con DHCP o IP fija de respaldo `192.168.1.22`
 - **Diagnóstico**: comandos TCP por Ethernet (sin BLE en Rev.4.0)
@@ -63,7 +71,7 @@ Flujo principal:
 4. Detecta estado MOVING/AVERAGING/LOCKED mediante máquina de estados.
 5. En parada promedia coordenadas (15 s por defecto, media recortada 5%).
 6. Aplica offset antena-pistón (0.55 m, dirección yaw+270°).
-7. Emite $GCGGA corregida al FWD por D2 @ 38400 bps.
+7. Emite `$GPGGA` al FWD por D2 @ 38400 bps.
 8. Sirve la trama por Ethernet TCP a los clientes conectados.
 9. El servidor TCP ofrece diagnóstico periódico y comandos interactivos.
 10. LEDs reflejan GNSS, IMU, HAS y movimiento/bloqueo.
@@ -75,6 +83,9 @@ Flujo principal:
 - **LOCKED**: posición fija y de salida estable (fix de salida = 4).
 
 ## Estructura del repositorio
+
+Consulta el [índice de documentación](docs/README.md) para clasificar materiales,
+software, guías vigentes y documentos históricos.
 
 - `firmware/arduino/RS232-RWM-GPS_V4-1/`: revisión actual FWM (Metro RP2040), sketch y transporte locales.
 - `firmware/arduino/RS232-RWM-GPS_V4-0.ino`: revisión monolítica conservada sin cambios.
@@ -89,7 +100,6 @@ Flujo principal:
 - `docs/PROGRAMACION.md`: notas de programación, decisiones técnicas y validación.
 - `docs/functional-spec-v1.0.md`: especificación funcional completa.
 - `docs/system-architecture.md`: detalle de arquitectura y comunicaciones.
-- `docs/DECISIONES.md`: consolidado de decisiones técnicas y criterios operativos.
 - `docs/CHANGELOG_V2-5.md`: novedades técnicas consolidadas de la versión V2-5.
 - `logs/2026-10-13-session.md`: registro de sesión y validación operativa.
 - `CHANGELOG.md`: historial de versiones.
@@ -273,73 +283,12 @@ La precisión horizontal aproximada se calcula como `UERE típico × HDOP`:
 | RTK (fix 4) | ~0.02 m |
 | HAS (fix 5) | ~0.20 m |
 
-## Configuración desde cero del UM980 y Galileo HAS
+## Configuración del receptor UM980
 
-Conectar el ArduSimple simpleRTK3B Budget por USB GPS y enviar los comandos
-uno a uno en la consola del UM980 a 115200 baudios, 8N1. Comprobar la
-respuesta de cada comando antes de continuar.
-
-**Atención:** `FRESET` borra la configuración guardada, las efemérides y la
-posición almacenada, y reinicia el receptor. Los puertos vuelven a 115200
-baudios. No ejecutar si se necesitan conservar los ajustes actuales.
-
-1. Restaurar y esperar a que el receptor reinicie:
-
-   ```text
-   FRESET
-   ```
-
-2. Configurar GGA y RMC a 10 Hz en COM1 y COM3, y guardar antes del posible
-   reinicio al cambiar el grupo de señales:
-
-   ```text
-   GNGGA COM1 0.1
-   GPRMC COM1 0.1
-   GNGGA COM3 0.1
-   GPRMC COM3 0.1
-   SAVECONFIG
-   ```
-
-3. Habilitar el grupo de señales con Galileo E6:
-
-   ```text
-   CONFIG SIGNALGROUP 2
-   ```
-
-   Esperar unos segundos; si el receptor reinicia, esperar a que se reconecte.
-
-4. Habilitar PPP con E6-HAS y guardar:
-
-   ```text
-   CONFIG PPP ENABLE E6-HAS
-   SAVECONFIG
-   ```
-
-Para E6-HAS se requiere una antena compatible con E6 y una versión/familia
-compatible del firmware UM980. Consultar la versión con:
-
-```text
-VERSIONA
-```
-
-Después de reiniciar o apagar y encender, verificar que GGA y RMC siguen
-emitiéndose por los puertos utilizados. El Metro recibe GNSS por Serial1 a
-115200 baudios: conectar el TX del puerto UM980 utilizado al RX D0, con GND
-común y el switch RX/TX en la posición adecuada.
-
-## Validación rápida en campo
-
-- Cielo despejado.
-- Esperar convergencia PPP/HAS (puede tardar varios minutos).
-- Verificar en estado del sistema:
-  - `GNSS=OK`
-  - `FIX_IN=5` (si lógica local lo usa para HAS)
-  - Solución marcada como HAS (según telemetría disponible).
-
-## Notas operativas
-
-- `UNLOGALL` aplica por puerto (`COM1`, `COM2`, `COM3`), no global.
-- Si hay duplicados NMEA, revisar qué puertos están emitiendo la misma sentencia.
+La secuencia vigente para restaurar el receptor, configurar NMEA en COM1/COM3
+y habilitar PPP Galileo E6-HAS está en
+[Configuración del UM980](docs/CONFIGURACION_UM980.md). Ese documento incluye
+las precauciones de FRESET, reinicios, guardado y cableado hacia el Metro.
 
 ## Dependencias
 
