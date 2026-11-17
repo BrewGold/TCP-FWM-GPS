@@ -272,34 +272,59 @@ La precisión horizontal aproximada se calcula como `UERE típico × HDOP`:
 | RTK (fix 4) | ~0.02 m |
 | HAS (fix 5) | ~0.20 m |
 
-## Activación de Galileo HAS en UM980
+## Configuración desde cero del UM980 y Galileo HAS
 
-> Ejecutar en la consola del UM980 (no en el parser NMEA de aplicación).
+Conectar el ArduSimple simpleRTK3B Budget por USB GPS y enviar los comandos
+uno a uno en la consola del UM980 a 115200 baudios, 8N1. Comprobar la
+respuesta de cada comando antes de continuar.
 
-### 1) Habilitar grupo con Galileo E6
+**Atención:** `FRESET` borra la configuración guardada, las efemérides y la
+posición almacenada, y reinicia el receptor. Los puertos vuelven a 115200
+baudios. No ejecutar si se necesitan conservar los ajustes actuales.
 
-```text
-SAVECONFIG
-CONFIG SIGNALGROUP 2
-```
+1. Restaurar y esperar a que el receptor reinicie:
 
-- `CONFIG SIGNALGROUP 2` puede reiniciar el receptor si cambia de grupo.
-- Esperar reconexión antes de seguir.
+   ```text
+   FRESET
+   ```
 
-### 2) Habilitar PPP con E6-HAS
+2. Configurar GGA y RMC a 10 Hz en COM1 y COM3, y guardar antes del posible
+   reinicio al cambiar el grupo de señales:
 
-```text
-CONFIG PPP ENABLE E6-HAS
-SAVECONFIG
-```
+   ```text
+   GNGGA COM1 0.1
+   GPRMC COM1 0.1
+   GNGGA COM3 0.1
+   GPRMC COM3 0.1
+   SAVECONFIG
+   ```
 
-### 3) Comprobar versión de firmware
+3. Habilitar el grupo de señales con Galileo E6:
+
+   ```text
+   CONFIG SIGNALGROUP 2
+   ```
+
+   Esperar unos segundos; si el receptor reinicia, esperar a que se reconecte.
+
+4. Habilitar PPP con E6-HAS y guardar:
+
+   ```text
+   CONFIG PPP ENABLE E6-HAS
+   SAVECONFIG
+   ```
+
+Para E6-HAS se requiere una antena compatible con E6 y una versión/familia
+compatible del firmware UM980. Consultar la versión con:
 
 ```text
 VERSIONA
 ```
 
-Para E6-HAS se requiere versión/familia compatible del firmware UM980.
+Después de reiniciar o apagar y encender, verificar que GGA y RMC siguen
+emitiéndose por los puertos utilizados. El Metro recibe GNSS por Serial1 a
+115200 baudios: conectar el TX del puerto UM980 utilizado al RX D0, con GND
+común y el switch RX/TX en la posición adecuada.
 
 ## Validación rápida en campo
 
