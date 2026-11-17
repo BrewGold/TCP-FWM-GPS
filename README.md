@@ -24,8 +24,8 @@ Las secciones de promedio, IMU y bloqueo que siguen describen **TCP-FWM-GPS**.
 
 - TCP-FWM-GPS: **todas las pruebas realizadas satisfactorias**.
 - GNSS, salida COM2 y NMEA por TCP verificados con fix autónomo (fix 1).
+- Galileo HAS probado con la última configuración; **converge correctamente**.
 - Pendiente: continuar el trabajo y las pruebas de **TCP-IRI-GPS**.
-- La convergencia PPP/Galileo HAS requiere validación independiente en campo.
 - Salida NMEA esperada para integración: **GPGGA** en Telnet/COM2.
 
 ## Flujo de puertos (resumen)

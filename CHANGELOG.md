@@ -9,8 +9,8 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
 - Pruebas de TCP-FWM-GPS completadas satisfactoriamente; validada la recepción
   GNSS con fix 1 y la salida por COM2 y NMEA TCP. Queda pendiente continuar
-  el trabajo y las pruebas de TCP-IRI-GPS. La convergencia PPP/Galileo HAS
-  sigue pendiente de validación independiente en campo.
+  el trabajo y las pruebas de TCP-IRI-GPS. Galileo HAS fue probado y converge
+  correctamente con la última configuración del UM980.
 - Rev.4.1 FWM como carpeta Arduino independiente, conservando exactamente
   Rev.4.0, TCP-IRI-GPS y `shared/`. GNSS/IMU/movimiento/COM2 sin cambios.
 - Transporte W5500 por registros públicos de Ethernet 2.0.2: SEND, escucha,
