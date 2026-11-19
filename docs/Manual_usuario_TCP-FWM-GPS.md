@@ -29,25 +29,25 @@ el puerto **15919**. Usa la IP asignada por la red; si no se asigna ninguna,
 el equipo usa `192.168.1.22`. En ese caso, el ordenador debe estar en la misma
 subred con una dirección distinta.
 
-Espera a que el LED 1 indique que hay posición. El equipo puede entregar una
+Espera a que el LED verde indique que hay posición. El equipo puede entregar una
 posición sin HAS; si el trabajo requiere esa corrección, espera a que el
-**LED 1 quede fijo**. HAS puede tardar en estar disponible, incluso con cielo
+**LED verde quede fijo**. HAS puede tardar en estar disponible, incluso con cielo
 despejado.
 
-Al llegar a un punto de medida, detén el vehículo. El **LED 2 parpadea**
+Al llegar a un punto de medida, detén el vehículo. El **LED rojo parpadea**
 mientras el equipo promedia la posición durante unos 15 segundos. Cuando
 queda **fijo**, la posición de ese punto está estabilizada. Al reanudar la
-marcha, el LED 2 se apaga y la posición vuelve a actualizarse.
+marcha, el LED rojo se apaga y la posición vuelve a actualizarse.
 
 ## Qué indican los LED
 
 | Indicador | Señal | Significado |
 |---|---|---|
-| **LED 1 · Posición** | Apagado | Aún no hay una posición GNSS válida. |
+| **LED verde · Posición** | Apagado | Aún no hay una posición GNSS válida. |
 | | Parpadeo rápido | Hay posición, pero el dispositivo no dispone de la lectura de dirección. |
 | | Parpadeo lento | Hay posición y lectura de dirección, pero HAS aún no está activo. |
 | | Encendido fijo | Hay posición y lectura de dirección, y HAS está activo. |
-| **LED 2 · Punto de medida** | Apagado | La posición no está estabilizada; es el estado normal en marcha. |
+| **LED rojo · Punto de medida** | Apagado | La posición no está estabilizada; es el estado normal en marcha. |
 | | Parpadeo | El equipo está promediando la posición tras detenerse. |
 | | Encendido fijo | El equipo mantiene una posición estable para ese punto. |
 
@@ -56,10 +56,10 @@ marcha, el LED 2 se apaga y la posición vuelve a actualizarse.
 | Qué ocurre | Qué hacer |
 |---|---|
 | Los LED no se encienden al conectar el equipo | Revisa que el cable USB-C esté bien conectado y que la fuente de alimentación esté encendida. |
-| El LED 1 sigue apagado | Revisa el cable de la antena, despeja su vista del cielo y deja tiempo para que el receptor obtenga posición. |
-| El LED 1 parpadea rápido de forma persistente | Revisa la conexión del dispositivo de dirección. Si no es accesible o el parpadeo continúa, contacta con el responsable del equipo. |
-| El LED 1 parpadea lento y necesitas HAS | Deja el vehículo con vista despejada del cielo y comprueba que la antena admite Galileo E6. Si se borró la configuración del receptor, sigue el apartado de recuperación. |
-| El LED 2 no queda fijo en el punto de medida | Comprueba que el LED 1 indique que hay posición y mantén el vehículo detenido hasta que termine el promedio. |
+| El LED verde sigue apagado | Revisa el cable de la antena, despeja su vista del cielo y deja tiempo para que el receptor obtenga posición. |
+| El LED verde parpadea rápido de forma persistente | Revisa la conexión del dispositivo de dirección. Si no es accesible o el parpadeo continúa, contacta con el responsable del equipo. |
+| El LED verde parpadea lento y necesitas HAS | Deja el vehículo con vista despejada del cielo y comprueba que la antena admite Galileo E6. Si se borró la configuración del receptor, sigue el apartado de recuperación. |
+| El LED rojo no queda fijo en el punto de medida | Comprueba que el LED verde indique que hay posición y mantén el vehículo detenido hasta que termine el promedio. |
 | Hay posición, pero FWM no la recibe | Revisa el cable Ethernet y que el cliente TCP esté conectado a la IP del equipo por el puerto **15919**. Si se desconectó el cable, vuelve a conectar el cliente. |
 
 ## Recuperar la configuración del UM980 y Galileo HAS
@@ -98,7 +98,7 @@ guardar los ajustes.
    ```
 
 6. Vuelve al uso normal con la antena conectada y el equipo al aire libre.
-   El LED 1 indica primero si hay posición y queda fijo cuando HAS está
+   El LED verde indica primero si hay posición y queda fijo cuando HAS está
    activo y la lectura de dirección está disponible.
 
 Si un comando da error, detente y anota el comando y la respuesta para el
