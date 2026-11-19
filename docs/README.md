@@ -8,7 +8,7 @@ estado del proyecto y la selección del firmware, empieza en el
 
 | Tema | Documento | Uso |
 |---|---|---|
-| Manual de usuario TCP-FWM-GPS | [Manual de instalación y uso](Manual_usuario_TCP-FWM-GPS.md) | Montaje, configuración UM980/HAS, carga del firmware y operación Rev.4.1 |
+| Manual de usuario TCP-FWM-GPS | [Guía de uso en campo](Manual_usuario_TCP-FWM-GPS.md) | Conexiones externas, orientación, uso con FWM, indicadores y recuperación de UM980/HAS |
 | Arquitectura | [Arquitectura del sistema](system-architecture.md) | Componentes, conexiones y diferencias entre FWM e IRI |
 | UM980 / RTK3B Budget | [Configuración del UM980](CONFIGURACION_UM980.md) | Restauración, NMEA por COM1/COM3, Galileo E6-HAS y persistencia |
 | Desarrollo y validación | [Programación](PROGRAMACION.md) | Pruebas, estado de validación y referencias para desarrolladores |
