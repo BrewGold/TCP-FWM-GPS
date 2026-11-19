@@ -16,7 +16,7 @@ La salida está disponible en:
 - **TCP NMEA:** puerto **15919**, hasta cuatro clientes.
 - **TCP diagnóstico:** puerto **15920**, un cliente de diagnóstico a la vez.
 
-La Ethernet usa DHCP y, si no obtiene una dirección, la IP de respaldo es `192.168.1.22/24` (gateway/DNS `192.168.1.1`). No se requiere HAS para probar la salida básica: un fix GNSS autónomo válido (fix 1) puede producir GGA. HAS mejora la solución cuando converge y está disponible.
+La Ethernet usa DHCP y, si no obtiene una dirección, la IP de respaldo es `192.168.1.22/24` (gateway/DNS `192.168.1.1`). No se requiere HAS para usar la salida básica: un fix GNSS autónomo válido (fix 1) puede producir GGA. HAS mejora la solución cuando converge y está disponible.
 
 ## 2. Material y precauciones
 
@@ -68,7 +68,7 @@ La configuración se realiza en la consola del receptor, **no** en el puerto de 
 
 6. Comprobar que salen GGA y RMC por el UART conectado al Metro. Conectar TX del receptor a D0/RX del Metro y compartir GND. La guía detallada de comandos y precauciones está en [Configuración del UM980](CONFIGURACION_UM980.md).
 
-La convergencia de HAS depende de una antena compatible con Galileo E6, cielo despejado, firmware del receptor compatible y tiempo de convergencia. La salida GNSS autónoma sigue funcionando mientras HAS está inactivo; no esperar HAS para hacer la primera comprobación de instalación.
+La convergencia de HAS depende de una antena compatible con Galileo E6, cielo despejado, firmware del receptor compatible y tiempo de convergencia. La salida GNSS autónoma sigue funcionando mientras HAS está inactivo; no esperar HAS para el uso básico.
 
 ## 4. Instalar/cargar el firmware del Metro
 
@@ -88,7 +88,7 @@ El repositorio contiene el código fuente, no un instalador binario del firmware
 4. Abrir `firmware/arduino/RS232-RWM-GPS_V4-1/RS232-RWM-GPS_V4-1.ino`. Mantener junto al sketch los archivos `TcpTransport.h` y `W5500Transport.h` de esa misma carpeta; no mover ni combinar sketches de otras revisiones.
 5. Compilar y, con el Metro conectado por USB, cargar el programa a la placa. Si la primera carga no encuentra el dispositivo, usar el procedimiento BOOTSEL de la placa y repetir la carga.
 
-### Arduino CLI (alternativa reproducible)
+### Arduino CLI (alternativa)
 
 Desde la raíz del repositorio, con Arduino CLI 1.3.1 instalado:
 
@@ -106,7 +106,7 @@ arduino-cli upload --fqbn rp2040:rp2040:adafruit_metro --port /dev/ttyACM0 \
   "$PWD/firmware/arduino/RS232-RWM-GPS_V4-1"
 ```
 
-La selección de versión y los pasos de prueba técnica están documentados en el [README del firmware](../firmware/arduino/README.md#compilación-rev41).
+La selección de versión y los pasos técnicos de compilación están en el [README del firmware](../firmware/arduino/README.md#compilación-rev41).
 
 ## 5. Instalar el software Dynatest
 
@@ -114,22 +114,22 @@ Los instaladores de Dynatest son externos y **no se distribuyen en este reposito
 
 1. Ejecutar como administrador **Dynatest Data Collection Prerequisites Installer 2.1.0.246** y reiniciar si lo solicita.
 2. Ejecutar como administrador **Dynatest Data Collection Installer 2.4.1**.
-3. Reiniciar el ordenador y abrir Dynatest Data Collection para confirmar que inicia.
+3. Reiniciar el ordenador y abrir Dynatest Data Collection.
 
 La referencia mantenida está en [Instaladores Dynatest](../firmware/Programa_FWM/README.md).
 
 ## 6. Puesta en marcha y operación
 
 1. Revisar cableado, adaptador RS232, switch RX/TX y alimentación antes de energizar.
-2. Encender el UM980, el Metro y el shield. Durante el inicio ambos LEDs ejecutan una prueba de aproximadamente cinco segundos.
-3. En la consola USB del Metro (115200 baudios), revisar los mensajes de inicio: GNSS, IMU, Ethernet y dirección IP. Registrar la IP asignada por DHCP o la de respaldo.
-4. Esperar una solución GNSS válida. Con fix 1 se puede confirmar la recepción y salida sin HAS.
-5. Conectar el Dynatest a COM2 según la interfaz instalada. Para comprobar NMEA o diagnóstico por Ethernet, conectar un PC a la misma red y usar la IP del equipo:
+2. Encender el UM980, el Metro y el shield. Durante el inicio ambos LEDs ejecutan una secuencia luminosa de aproximadamente cinco segundos.
+3. En la consola USB del Metro (115200 baudios), consultar los mensajes de inicio para conocer el estado del GNSS, IMU, Ethernet y la dirección IP asignada por DHCP o la de respaldo.
+4. El equipo puede operar con una solución GNSS válida; no es necesario esperar HAS para la salida básica.
+5. Conectar el Dynatest a COM2 según la interfaz instalada. Para recibir NMEA o consultar el diagnóstico por Ethernet, conectar un PC a la misma red y usar la IP del equipo:
    - NMEA: cliente TCP a `<IP_DEL_METRO>:15919`.
    - Diagnóstico: cliente TCP a `<IP_DEL_METRO>:15920`.
-6. Confirmar que las tramas `$GPGGA` tienen checksum/CRLF y que la frecuencia es la esperada. El cliente TCP NMEA debe conectarse para recibir tramas.
+6. El cliente TCP NMEA debe mantenerse conectado para recibir tramas.
 
-Si se usa la IP de respaldo `192.168.1.22`, el PC debe tener conectividad en `192.168.1.0/24`; coordinar con el administrador de la red para evitar direcciones duplicadas. No exponer los puertos Telnet/TCP a Internet: no ofrecen cifrado ni autenticación.
+Si se usa la IP de respaldo `192.168.1.22`, el PC debe tener conectividad en `192.168.1.0/24`; coordinar con el administrador de la red para evitar direcciones duplicadas. No exponer los puertos TCP a Internet: no ofrecen cifrado ni autenticación.
 
 ### Estados e indicadores
 
@@ -138,7 +138,7 @@ Si se usa la IP de respaldo `192.168.1.22`, el PC debe tener conectividad en `19
 | LED1 | D5 | Apagado: sin GNSS válido. Parpadeo rápido (~200 ms): GNSS válido, IMU no disponible. Parpadeo lento (~600 ms): GNSS e IMU disponibles, HAS inactivo. Fijo: HAS activo (fix de entrada 5). |
 | LED2 | D6 | Apagado: `MOVING`; parpadeo (~400 ms): `AVERAGING`; fijo: `LOCKED`, posición estabilizada. |
 
-Los estados de procesamiento son `MOVING` (posición GNSS actual), `AVERAGING` (acumulación durante la parada) y `LOCKED` (posición promediada y corregida). En la salida histórica Rev.4.1, el fix de salida es 4 en `LOCKED`; en movimiento, HAS de entrada se mapea a fix de salida 2 y los demás fixes válidos a 1. Por ello, consultar el fix de entrada en `status` para distinguir el servicio HAS recibido.
+Los estados de procesamiento son `MOVING` (posición GNSS actual), `AVERAGING` (acumulación durante la parada) y `LOCKED` (posición promediada y corregida). En la salida Rev.4.1, el fix es 4 en `LOCKED`; en movimiento, HAS de entrada se mapea a fix de salida 2 y los demás fixes válidos a 1. Por ello, consultar el fix de entrada en `status` para distinguir el servicio HAS recibido.
 
 ## 7. Diagnóstico y comandos
 
@@ -157,13 +157,13 @@ Conectar un solo cliente al puerto TCP **15920** y enviar comandos terminados en
 | `debug hex on` / `debug hex off` | Inicia o finaliza una captura diagnóstica temporal de bytes GNSS. |
 | `help` | Muestra comandos disponibles. |
 
-La calibración magnética solo debe hacerse con el montaje instalado y siguiendo el procedimiento de servicio del proyecto: mantener el equipo en movimiento lento por distintas orientaciones durante la captura, finalizar con `magcal stop` y comprobar el resultado con `imu`. Si la calibración no es válida, el firmware informa el error; no usar una calibración fallida para trabajo de campo. Guardar cambios solo cuando sea necesario.
+La calibración magnética solo debe hacerse con el montaje instalado y siguiendo el procedimiento de servicio del proyecto: orientar lentamente el equipo en distintas direcciones durante la captura, finalizar con `magcal stop` y consultar `imu`. Si la calibración no es válida, el firmware informa el error; no usar una calibración fallida para trabajo de campo. Guardar cambios solo cuando sea necesario.
 
 `debug hex on` captura bytes de entrada durante un periodo corto y luego informa el volcado por el diagnóstico; interrumpe temporalmente parte del diagnóstico periódico, no es una salida NMEA. No iniciar otra captura mientras una está activa o se está enviando.
 
 Como alternativa en Windows, [DiagTelnetWin](../tools/DiagTelnetWin/README.md) se conecta a `<IP_DEL_METRO>:15920` y consulta `status`; no consume COM2 ni el puerto NMEA. La aplicación es solo de lectura y no reemplaza los comandos manuales. Su modo portable requiere extraer el ZIP y ejecutar `DiagTelnetWin.exe`.
 
-## 8. Instalación: comprobación y resolución de problemas
+## 8. Solución de problemas
 
 | Síntoma | Comprobaciones recomendadas |
 |---|---|
@@ -171,12 +171,7 @@ Como alternativa en Windows, [DiagTelnetWin](../tools/DiagTelnetWin/README.md) s
 | HAS no aparece | Verificar que se ejecutaron y guardaron los comandos Galileo E6-HAS, que la antena admite E6 y que hay cielo despejado; esperar convergencia. El fix autónomo puede operar sin HAS. |
 | IMU no disponible | Revisar alimentación y SDA/SCL del ICM-20948, niveles/pull-ups de 3.3 V y comando `imu`. LED1 rápido indica GNSS válido sin IMU. |
 | No hay IP/servidor TCP | Revisar cable y enlace W5500, DHCP/subred y mensajes USB. Si se usa la IP de respaldo, conectar el PC a la misma subred y comprobar que no haya conflicto. Volver a conectar los clientes después de recuperar el enlace. |
-| NMEA no llega por TCP | Verificar IP correcta, puerto **15919**, cliente conectado, GNSS válido y checksum; el puerto **15920** es diagnóstico, no NMEA. |
+| NMEA no llega por TCP | Verificar IP correcta, puerto **15919**, cliente conectado y GNSS válido; el puerto **15920** es diagnóstico, no NMEA. |
 | FWD no recibe datos | Verificar COM2 por D2, 38400/8N1, adaptador RS232 entre Metro y Dynatest y masa/cableado. No conectar RS232 directamente al GPIO. Consultar `com2`. |
-| Compilación falla | Confirmar placa Metro RP2040 con core Arduino-Pico de Earle Philhower, las versiones de bibliotecas y que los dos headers de Rev.4.1 permanecen junto al sketch. |
+| No se puede cargar firmware | Confirmar placa Metro RP2040 con core Arduino-Pico de Earle Philhower, las versiones de bibliotecas y que los dos headers de Rev.4.1 permanecen junto al sketch. |
 
-## 9. Validación y límites
-
-La documentación del proyecto informa que la recepción GNSS con fix autónomo, salida COM2/NMEA y convergencia Galileo HAS se han probado. La Rev.4.1 también incluye compilación y pruebas host de su transporte cooperativo; las pruebas específicas de banco con varios clientes TCP lentos, W5500/Windows/FWD y cargas prolongadas siguen siendo la validación recomendada antes de desplegar una instalación nueva. Una prueba host o una compilación correcta no sustituye la comprobación física de cables, niveles eléctricos, temporización y aceptación del Dynatest.
-
-Para registro de cambios y estado vigente, consultar el [README principal](../README.md) y el [índice de documentación](README.md).
