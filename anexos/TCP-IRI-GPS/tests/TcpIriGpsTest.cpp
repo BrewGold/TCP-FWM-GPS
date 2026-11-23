@@ -1,7 +1,7 @@
 #include <cassert>
 #include <cmath>
 #include <iostream>
-#include "../arduino/TCP-IRI-GPS/TCP-IRI-GPS.ino"
+#include "../firmware/TCP-IRI-GPS/TCP-IRI-GPS.ino"
 
 std::string nmea(const std::string& payload) {
   unsigned checksum = 0;

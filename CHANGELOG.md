@@ -7,6 +7,8 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+- TCP-IRI-GPS, su documentación y sus pruebas host se han trasladado a
+  `anexos/TCP-IRI-GPS/`, sin modificar el firmware FWM ni el comportamiento IRI.
 - Organización de la documentación con un índice para materiales, software,
   configuración y manuales; separadas las instrucciones vigentes de las guías
   históricas Rev.2.x. Añadida guía canónica de configuración UM980.

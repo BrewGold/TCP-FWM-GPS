@@ -16,13 +16,14 @@ reproducibles. La documentación está organizada en el
 ## Aplicaciones
 
 FWM e IRI son aplicaciones independientes. Selección de sketch, dependencias,
-compilación/carga y comandos de pruebas están en el
-[README del firmware Arduino](../firmware/arduino/README.md).
+compilación/carga y pruebas están en el
+[README del firmware FWM](../firmware/arduino/README.md) y el
+[anexo IRI](../anexos/TCP-IRI-GPS/README.md), respectivamente.
 
 | Aplicación | Ruta | Alcance |
 |---|---|---|
 | TCP-FWM-GPS Rev.4.1 | `firmware/arduino/RS232-RWM-GPS_V4-1/` | FWM con IMU, offset, promedio/bloqueo y transporte TCP cooperativo |
-| TCP-IRI-GPS | `firmware/arduino/TCP-IRI-GPS/` | GNSS directo de movimiento continuo, sin IMU ni promedio/bloqueo |
+| TCP-IRI-GPS | [Anexo](../anexos/TCP-IRI-GPS/README.md) | GNSS directo de movimiento continuo, sin IMU ni promedio/bloqueo |
 
 No utilizar las notas de pruebas históricas Rev.2.x como evidencia de
 validación física de IRI o como instrucción de carga para Rev.4.1.
@@ -47,8 +48,8 @@ históricas y no sustituyen esa guía.
 
 ## Regresión y pruebas
 
-Ejecutar los comandos y pruebas documentados en el README del firmware para la
-aplicación que se modifica. Los cambios de transporte deben conservar la
+Ejecutar los comandos y pruebas documentados para la aplicación que se modifica.
+Los cambios de transporte deben conservar la
 integridad de las tramas NMEA y el aislamiento de clientes TCP. No marcar como
 prueba física un resultado de compilación o de pruebas host.
 

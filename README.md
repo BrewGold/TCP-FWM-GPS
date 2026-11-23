@@ -10,23 +10,11 @@ Sistema GNSS para Dynatest FWD con receptor ArduSimple simpleRTK3B Budget (UM980
 - [Desarrollo y validación](docs/PROGRAMACION.md)
 - [Firmware: selección, compilación y pruebas](firmware/arduino/README.md)
 
-## TCP-IRI-GPS: variante de movimiento continuo
+## Anexo TCP-IRI-GPS
 
-Este repositorio también incluye **TCP-IRI-GPS**, para el mismo Metro RP2040,
-GNSS UM980 y W5500. Es un proyecto **autónomo**, no sustituye a TCP-FWM-GPS:
-
-- Sin magnetómetro/IMU, calibración ni offset antena-pistón.
-- Latitud, longitud y altitud instantáneas, sin promedio, smoothing ni bloqueo;
-  conserva la calidad de fix del GGA recibido.
-- Conserva COM2 D2, TCP NMEA 15919, diagnóstico 15920 y LEDs D5/D6.
-  LED1 indica GNSS/HAS sin exigir IMU; LED2 permanece apagado (MOVING).
-- Registra velocidad RMC en m/s en `status`, `[DIAG]` y monitor USB (`N/A` si
-  no es válida o tiene más de 2 s). Proyecto compilado para RP2040 y probado
-  en host; validación física pendiente.
-
-Selección, compilación y pruebas de banco:
-[TCP-IRI-GPS en el README del firmware](firmware/arduino/README.md#tcp-iri-gps-movimiento-continuo).
-Las secciones de promedio, IMU y bloqueo que siguen describen **TCP-FWM-GPS**.
+[TCP-IRI-GPS](anexos/TCP-IRI-GPS/README.md) es una aplicación independiente
+para movimiento continuo, incluida como anexo sin sustituir a TCP-FWM-GPS.
+Su desarrollo y validación física siguen pendientes.
 
 ## Estado actual (2026-11-17)
 
@@ -89,10 +77,8 @@ software, guías vigentes y documentos históricos.
 
 - `firmware/arduino/RS232-RWM-GPS_V4-1/`: revisión actual FWM (Metro RP2040), sketch y transporte locales.
 - `firmware/arduino/RS232-RWM-GPS_V4-0.ino`: revisión monolítica conservada sin cambios.
-- `firmware/arduino/TCP-IRI-GPS/TCP-IRI-GPS.ino`: aplicación independiente de movimiento continuo.
-- `firmware/arduino/TCP-IRI-GPS/Gnss.h`: GNSS directo y protocolo NMEA locales, sin magnetómetro ni promedio.
+- `anexos/TCP-IRI-GPS/`: firmware, documentación y pruebas independientes de IRI.
 - `firmware/arduino/shared/TcpGpsFirmware.h`: implementación conservada de FWM; IRI ya no depende de ella.
-- `firmware/tests/TcpIriGpsTest.cpp`: pruebas host del sketch IRI real con hardware simulado.
 - `firmware/arduino/RS232-RWM-GPS_V3-0.ino`: revisión histórica Metro M4.
 - `firmware/arduino/RS232-RWM-GPS_V2-9.ino`: puente temporal UNO R4, sin IMU/I2C.
 - `firmware/arduino/RS232-RWM-GPS_V2-8.ino`: última base UNO R4, conservada.
