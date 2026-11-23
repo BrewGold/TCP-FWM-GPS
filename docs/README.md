@@ -12,7 +12,8 @@ estado del proyecto y la selección del firmware, empieza en el
 | Arquitectura | [Arquitectura del sistema](system-architecture.md) | Componentes, conexiones y diferencias entre FWM e IRI |
 | UM980 / RTK3B Budget | [Configuración del UM980](CONFIGURACION_UM980.md) | Restauración, NMEA por COM1/COM3, Galileo E6-HAS y persistencia |
 | Desarrollo y validación | [Programación](PROGRAMACION.md) | Pruebas, estado de validación y referencias para desarrolladores |
-| Firmware | [README del firmware](../firmware/arduino/README.md) | Selección, compilación, carga y pruebas de FWM e IRI |
+| Firmware | [README del firmware](../firmware/arduino/README.md) | Selección, compilación, carga y pruebas de FWM |
+| Anexo IRI | [TCP-IRI-GPS](../anexos/TCP-IRI-GPS/README.md) | Firmware, compilación y pruebas de la aplicación independiente IRI |
 | Diagnóstico Windows | [DiagTelnetWin](../tools/DiagTelnetWin/README.md) | Cliente del puerto TCP de diagnóstico 15920 |
 | Instalación Dynatest | [Programa FWM](../firmware/Programa_FWM/README.md) | Instaladores externos y orden de instalación |
 
@@ -49,10 +50,10 @@ referencia; no sustituyen las guías vigentes de arriba.
 - **TCP-FWM-GPS Rev.4.1** (`firmware/arduino/RS232-RWM-GPS_V4-1/`) es el
   firmware FWM actual para Metro RP2040; las pruebas realizadas fueron
   satisfactorias y Galileo HAS converge con la configuración vigente.
-- **TCP-IRI-GPS** (`firmware/arduino/TCP-IRI-GPS/`) es una aplicación
+- **TCP-IRI-GPS** ([anexo](../anexos/TCP-IRI-GPS/README.md)) es una aplicación
   independiente; continuar su desarrollo y validación física está pendiente.
 - Las pruebas host y los comandos de compilación/carga se documentan en el
-  [README del firmware](../firmware/arduino/README.md).
+  [README del firmware](../firmware/arduino/README.md) y en el anexo IRI.
 - Las pruebas host están en `firmware/tests/`; el código antiguo se conserva
   en `firmware/arduino/Obsoleto/` y los prototipos BLE en
   `firmware/arduino/FWD_GPS_Diag/` y `firmware/arduino/FWM_GPS_R0/`.

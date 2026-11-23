@@ -13,7 +13,7 @@ contiene dos aplicaciones autónomas:
 | Aplicación | Firmware | Función | Estado |
 |---|---|---|---|
 | TCP-FWM-GPS | `firmware/arduino/RS232-RWM-GPS_V4-1/` | Flujo FWM con IMU, offset, promedio/bloqueo y salida GNSS | Pruebas realizadas satisfactorias |
-| TCP-IRI-GPS | `firmware/arduino/TCP-IRI-GPS/` | Posición GNSS directa para movimiento continuo, sin IMU ni promedio/bloqueo | Trabajo y validación física pendientes |
+| TCP-IRI-GPS | [Anexo](../anexos/TCP-IRI-GPS/README.md) | Posición GNSS directa para movimiento continuo, sin IMU ni promedio/bloqueo | Trabajo y validación física pendientes |
 
 No combinar las dos aplicaciones: cada una tiene su propio sketch de entrada,
 parser y comportamiento.
@@ -67,7 +67,7 @@ RS232 para el Dynatest.
 - No usa IMU, EEPROM de calibración, yaw, offset, promedio ni bloqueo.
 - Mantiene COM2, TCP NMEA/diagnóstico y la señalización LED descrita en su
   documentación de firmware.
-- La implementación y pruebas host están descritas en el README del firmware;
+- La implementación y pruebas host están descritas en el [anexo](../anexos/TCP-IRI-GPS/README.md);
   la validación física sigue pendiente.
 
 ## Referencias históricas
